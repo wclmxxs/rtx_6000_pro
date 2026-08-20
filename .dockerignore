@@ -1,0 +1,13 @@
+.git
+.idea
+.env
+.generated
+.state
+.pytest_cache
+**/__pycache__
+**/*.pyc
+**/*.log
+README.md
+tests
+api/tests
+

@@ -1,0 +1,54 @@
+{
+  "lilcheaty_revision": "8c5abfed61e1b6a170240792b65253fba1a65b7b",
+  "larry_revision": "43a74557ac3f6539db8e0f2a959d03feb7a81480",
+  "files": [
+    {
+      "repo": "lilcheaty/MiniMax-H3-NVFP4",
+      "revision": "8c5abfed61e1b6a170240792b65253fba1a65b7b",
+      "filename": "minimax_h3_fl2va_pruned_nvfp4.safetensors",
+      "local_dir": "diffusion_models",
+      "sha256": "72fa9269ce551fb63ff42a32d9b46d0c122e84b4b2c511e22fa698287b088f70",
+      "size": 12528636800
+    },
+    {
+      "repo": "lilcheaty/MiniMax-H3-NVFP4",
+      "revision": "8c5abfed61e1b6a170240792b65253fba1a65b7b",
+      "filename": "minimax_h3_ref2va_pruned_nvfp4.safetensors",
+      "local_dir": "diffusion_models",
+      "sha256": "c813c5eabd85e275daccbf45e6f8ac4d9d14a1827d425e5be5070c92c60b78ac",
+      "size": 12528636800
+    },
+    {
+      "repo": "lilcheaty/MiniMax-H3-NVFP4",
+      "revision": "8c5abfed61e1b6a170240792b65253fba1a65b7b",
+      "filename": "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "local_dir": ".",
+      "sha256": "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6",
+      "size": 15687142551
+    },
+    {
+      "repo": "lilcheaty/MiniMax-H3-NVFP4",
+      "revision": "8c5abfed61e1b6a170240792b65253fba1a65b7b",
+      "filename": "vae/minimax_h3_video_vae_fp16.safetensors",
+      "local_dir": ".",
+      "sha256": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+      "size": 5207808496
+    },
+    {
+      "repo": "lilcheaty/MiniMax-H3-NVFP4",
+      "revision": "8c5abfed61e1b6a170240792b65253fba1a65b7b",
+      "filename": "vae/minimax_h3_audio_vae_fp32.safetensors",
+      "local_dir": ".",
+      "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "size": 605254808
+    },
+    {
+      "repo": "larryvrh/MiniMax-H3-Turbo-Lora",
+      "revision": "43a74557ac3f6539db8e0f2a959d03feb7a81480",
+      "filename": "minimax_h3_turbo_v4_step600_ema.safetensors",
+      "local_dir": "loras",
+      "sha256": "5f3a626cd72c93a8b9318d6760c510bc5092d2ab13aaba1f932c5bab07a416d3",
+      "size": 779849816
+    }
+  ]
+}

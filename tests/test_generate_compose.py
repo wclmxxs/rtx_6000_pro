@@ -1,0 +1,80 @@
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+import yaml
+
+
+MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts/generate_compose.py"
+SPEC = importlib.util.spec_from_file_location("generate_compose", MODULE_PATH)
+MODULE = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+SPEC.loader.exec_module(MODULE)
+
+
+def test_worker_and_api_are_bound_to_requested_gpu():
+    gpu = {
+        "index": 3,
+        "uuid": "GPU-test",
+        "name": "RTX PRO 6000 Blackwell",
+        "memory_mb": 97887,
+    }
+    worker = "\n".join(MODULE.worker_service(gpu, "/srv/minimax-h3"))
+    api = "\n".join(MODULE.api_service(gpu, "/srv/minimax-h3", "10.0.0.4", 30010))
+    assert "device_ids: [\"3\"]" in worker
+    assert "minimax-h3-comfy-3" in worker
+    assert "0.0.0.0:30013:30010" in api
+    assert "http://10.0.0.4:30013" in api
+
+
+def test_gpu_count_is_discovered_from_nvidia_smi(monkeypatch):
+    class Result:
+        stdout = (
+            "0, GPU-a, NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887\n"
+            "1, GPU-b, NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887\n"
+            "2, GPU-c, NVIDIA RTX PRO 6000 Blackwell Server Edition, 97887\n"
+        )
+
+    monkeypatch.setattr(MODULE.subprocess, "run", lambda *args, **kwargs: Result())
+    gpus = MODULE.detect_gpus()
+    assert [gpu["index"] for gpu in gpus] == [0, 1, 2]
+    assert gpus[2]["uuid"] == "GPU-c"
+
+
+def test_main_renders_one_service_pair_per_detected_gpu(monkeypatch, tmp_path):
+    gpus = [
+        {"index": index, "uuid": f"GPU-{index}", "name": "RTX PRO 6000", "memory_mb": 97887}
+        for index in range(3)
+    ]
+    monkeypatch.setattr(MODULE, "detect_gpus", lambda: gpus)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "generate_compose.py",
+            "--output-dir",
+            str(tmp_path),
+            "--advertise-host",
+            "10.0.0.4",
+            "--instance-id",
+            "i-test",
+            "--release-id",
+            "release-test",
+            "--worker-image",
+            "worker:test",
+            "--api-image",
+            "api:test",
+        ],
+    )
+    MODULE.main()
+    compose = (tmp_path / "compose.yaml").read_text()
+    parsed = yaml.safe_load(compose)
+    config = json.loads((tmp_path / "instances.json").read_text())
+    assert sum(f"\n  h3-comfy-{index}:\n" in compose for index in range(3)) == 3
+    assert sum(f"\n  h3-api-{index}:\n" in compose for index in range(3)) == 3
+    assert len(parsed["services"]) == 7
+    assert parsed["services"]["h3-comfy-2"]["deploy"]["resources"]["reservations"]["devices"][0]["device_ids"] == ["2"]
+    assert len(config["instances"]) == 3
+    assert config["deployment"]["worker_image"] == "worker:test"
+    assert config["deployment"]["api_image"] == "api:test"
