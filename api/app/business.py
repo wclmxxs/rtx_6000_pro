@@ -79,7 +79,9 @@ class GenerationRequest(BaseModel):
     # backend does not implement. Ignore them instead of rejecting the task.
     model_config = ConfigDict(extra="ignore")
 
-    model: str
+    # Kept only for wire compatibility with the gateway. The deployment serves
+    # one fixed model, so this field is optional and must not affect routing.
+    model: str | None = None
     content: list[ContentItem] = Field(min_length=1)
     resolution: Literal["768P", "704P"]
     duration: int = Field(ge=4, le=15)
@@ -89,8 +91,6 @@ class GenerationRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_generation(self) -> "GenerationRequest":
-        if self.model != BUSINESS_MODEL:
-            raise ValueError(f"model must be {BUSINESS_MODEL!r}")
         if not any(item.type == "text" and item.text and item.text.strip() for item in self.content):
             raise ValueError("content must contain at least one non-empty text item")
 
@@ -125,13 +125,12 @@ class GenerationRequest(BaseModel):
 class QueryRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    model: str
+    # Accepted for gateway compatibility but intentionally not used.
+    model: str | None = None
     task_id: str
 
     @model_validator(mode="after")
     def validate_query(self) -> "QueryRequest":
-        if self.model != BUSINESS_MODEL:
-            raise ValueError(f"model must be {BUSINESS_MODEL!r}")
         if not self.task_id.strip():
             raise ValueError("task_id must be non-empty")
         return self

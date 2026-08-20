@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.business import GenerationRequest, task_payload, to_core_request
+from app.business import GenerationRequest, QueryRequest, task_payload, to_core_request
 
 
 def text_item(text="A cinematic landscape"):
@@ -27,6 +27,23 @@ def test_text_to_video_maps_business_nfe_to_sigma_points():
     assert core.task == "t2va"
     assert core.target.short_edge == 768
     assert core.num_inference_steps == 7
+
+
+@pytest.mark.parametrize("model", [None, "", "wrong-model", "another-model"])
+def test_generation_model_is_optional_and_ignored(model):
+    overrides = {"model": model}
+    generation = request(**overrides)
+    core = to_core_request(generation)
+    assert core.model == "MiniMaxAI/MiniMax-H3"
+
+
+@pytest.mark.parametrize("model", [None, "", "wrong-model", "another-model"])
+def test_query_model_is_optional_and_ignored(model):
+    payload = {"task_id": "task-id"}
+    if model is not None:
+        payload["model"] = model
+    query = QueryRequest.model_validate(payload)
+    assert query.task_id == "task-id"
 
 
 def test_text_role_and_unknown_gateway_fields_are_ignored():
@@ -205,7 +222,7 @@ def test_gateway_validation_error_is_explicit_json():
         json={
             "model": "wrong-model",
             "content": [{"type": "text", "text": "hello"}],
-            "resolution": "768P",
+            "resolution": "invalid-resolution",
             "duration": 5,
             "ratio": "16:9",
         },
@@ -220,7 +237,7 @@ def test_gateway_not_found_error_is_explicit_json():
 
     response = TestClient(app, raise_server_exceptions=False).post(
         "/ic/capcut/edit_gateway/v2/query/video_generation",
-        json={"model": "MiniMax-H3", "task_id": "missing-task"},
+        json={"model": "wrong-model", "task_id": "missing-task"},
     )
     assert response.status_code == 404
     assert response.json()["error"] == {
