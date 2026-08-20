@@ -19,6 +19,24 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def prefetch(path: Path) -> None:
+    total = path.stat().st_size
+    completed = 0
+    next_report = 1024**3
+    print(f"prefetching EBS blocks: {path} ({total / 1024**3:.1f} GiB)", flush=True)
+    with path.open("rb") as source:
+        while chunk := source.read(64 * 1024 * 1024):
+            completed += len(chunk)
+            if completed >= next_report:
+                print(
+                    f"prefetch progress: {path.name} "
+                    f"{completed / 1024**3:.1f}/{total / 1024**3:.1f} GiB",
+                    flush=True,
+                )
+                next_report += 1024**3
+    print(f"prefetched: {path}", flush=True)
+
+
 def destination_for(root: Path, item: dict) -> Path:
     return root / item["local_dir"] / item["filename"]
 
@@ -34,6 +52,11 @@ def main() -> None:
         "--trust-existing-size",
         action="store_true",
         help="accept existing files with the locked size without recomputing SHA256",
+    )
+    parser.add_argument(
+        "--prefetch-existing",
+        action="store_true",
+        help="sequentially read trusted files to initialize snapshot-backed EBS blocks",
     )
     args = parser.parse_args()
 
@@ -62,6 +85,8 @@ def main() -> None:
         if destination.is_file() and destination.stat().st_size == int(item["size"]):
             if args.trust_existing_size:
                 print(f"trusted existing size: {destination}", flush=True)
+                if args.prefetch_existing:
+                    prefetch(destination)
                 continue
             print(f"verifying existing: {destination}", flush=True)
             actual = sha256(destination)

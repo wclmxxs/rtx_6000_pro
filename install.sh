@@ -166,7 +166,7 @@ fi
 
 model_args=(--root "${DATA_ROOT}/models")
 if [[ ${from_ami} == true ]]; then
-  model_args+=(--trust-existing-size)
+  model_args+=(--trust-existing-size --prefetch-existing)
 fi
 HF_TOKEN=${HF_TOKEN:-} .state/model-venv/bin/python scripts/download_models.py \
   "${model_args[@]}"

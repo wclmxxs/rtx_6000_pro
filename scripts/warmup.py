@@ -83,26 +83,32 @@ def main() -> None:
 
     ports = [args.base_port + index for index in range(args.gpu_count)]
     failures = []
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=min(args.parallelism, len(ports))
-    ) as executor:
-        futures = {
-            executor.submit(
-                warm_one,
-                args.host,
-                port,
-                args.release_id,
-                Path(args.marker_root),
-                args.force,
-            ): port
-            for port in ports
-        }
-        for future in concurrent.futures.as_completed(futures):
-            port = futures[future]
-            try:
-                print(json.dumps(future.result()), flush=True)
-            except Exception as exc:
-                failures.append(f"port {port}: {exc}")
+    parallelism = min(args.parallelism, len(ports))
+    for offset in range(0, len(ports), parallelism):
+        batch = ports[offset : offset + parallelism]
+        print(f"warming ports: {','.join(map(str, batch))}", flush=True)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as executor:
+            futures = {
+                executor.submit(
+                    warm_one,
+                    args.host,
+                    port,
+                    args.release_id,
+                    Path(args.marker_root),
+                    args.force,
+                ): port
+                for port in batch
+            }
+            for future in concurrent.futures.as_completed(futures):
+                port = futures[future]
+                try:
+                    print(json.dumps(future.result()), flush=True)
+                except Exception as exc:
+                    failures.append(f"port {port}: {exc}")
+        if failures:
+            # Do not pile more work onto the remaining GPUs when a batch is
+            # still running remotely or failed to become ready.
+            break
     if failures:
         raise SystemExit("; ".join(failures))
 

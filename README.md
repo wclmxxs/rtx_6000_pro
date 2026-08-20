@@ -27,7 +27,7 @@ cd rtx_6000_pro
 ./install.sh --from-ami
 ```
 
-该模式仍会从 IMDS 刷新公网 IP 和 instance-id、重新生成 Compose、启动并逐卡强制预热、最后重新注册；但已有模型只检查锁定文件大小，不再读取约 47GB 数据计算 SHA256，已有 Docker 镜像也会直接复用。若模型或镜像缺失，仍会自动下载或构建。普通 `./install.sh` 保持完整哈希校验和构建流程，适合全新机器及发布验证。
+该模式仍会从 IMDS 刷新公网 IP 和 instance-id、重新生成 Compose、启动并逐卡强制预热、最后重新注册；已有模型只检查锁定文件大小，不计算 SHA256，但会顺序读取一次以初始化 snapshot-backed EBS blocks，避免多个 GPU 首次加载时同时触发 EBS lazy loading。已有 Docker 镜像会直接复用；模型或镜像缺失时仍会自动下载或构建。普通 `./install.sh` 保持完整哈希校验和构建流程，适合全新机器及发布验证。
 
 如需覆盖默认值，首次运行前执行：
 
