@@ -38,8 +38,8 @@ def test_worker_and_api_are_bound_to_requested_gpu():
     assert "CACHE_DIT_FN_BLOCKS: ${CACHE_DIT_FN_BLOCKS:-1}" in api
     assert "CACHE_DIT_RESIDUAL_DIFF_THRESHOLD: ${CACHE_DIT_RESIDUAL_DIFF_THRESHOLD:-0.24}" in api
     assert "SOL_ATTN_ENABLED: ${SOL_ATTN_ENABLED:-true}" in api
-    assert "SOL_ATTN_TAU_START: ${SOL_ATTN_TAU_START:-1.2}" in api
-    assert "SOL_ATTN_DENSE_BLOCKS: ${SOL_ATTN_DENSE_BLOCKS:-0-2,-1}" in api
+    assert "SOL_ATTN_TAU_START: ${SOL_ATTN_TAU_START:-1.5}" in api
+    assert 'SOL_ATTN_DENSE_BLOCKS: "${SOL_ATTN_DENSE_BLOCKS-}"' in api
 
 
 def test_gpu_count_is_discovered_from_nvidia_smi(monkeypatch):
@@ -93,9 +93,15 @@ def test_main_renders_one_service_pair_per_detected_gpu(monkeypatch, tmp_path):
     assert "/srv/minimax-h3/slots/2/output:/comfy-output" in api_two["volumes"]
     assert api_two["environment"]["OUTPUT_TTL_SECONDS"] == "${OUTPUT_TTL_SECONDS:-43200}"
     assert api_two["environment"]["CACHE_DIT_ENABLED"] == "${CACHE_DIT_ENABLED:-true}"
-    assert api_two["environment"]["CACHE_DIT_WARMUP_STEPS"] == "${CACHE_DIT_WARMUP_STEPS:-2}"
+    assert api_two["environment"]["CACHE_DIT_WARMUP_STEPS"] == "${CACHE_DIT_WARMUP_STEPS:-1}"
     assert api_two["environment"]["SOL_ATTN_ENABLED"] == "${SOL_ATTN_ENABLED:-true}"
     assert api_two["environment"]["SOL_ATTN_CURVE"] == "${SOL_ATTN_CURVE:-cosine}"
+    assert api_two["environment"]["SOL_ATTN_TAU_START"] == "${SOL_ATTN_TAU_START:-1.5}"
+    assert api_two["environment"]["SOL_ATTN_TAU_END"] == "${SOL_ATTN_TAU_END:-1.5}"
+    assert api_two["environment"]["SOL_ATTN_STRICT"] == "${SOL_ATTN_STRICT:-true}"
+    assert api_two["environment"]["SOL_ATTN_DENSE_PERCENT"] == "${SOL_ATTN_DENSE_PERCENT:-0}"
+    assert api_two["environment"]["SOL_ATTN_INT8_QK"] == "${SOL_ATTN_INT8_QK:-true}"
+    assert api_two["environment"]["SOL_ATTN_DENSE_BLOCKS"] == "${SOL_ATTN_DENSE_BLOCKS-}"
     assert len(config["instances"]) == 3
     assert config["deployment"]["worker_image"] == "worker:test"
     assert config["deployment"]["api_image"] == "api:test"

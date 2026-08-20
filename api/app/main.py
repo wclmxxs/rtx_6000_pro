@@ -98,7 +98,7 @@ CACHE_DIT_RESIDUAL_DIFF_THRESHOLD = max(
     float(os.getenv("CACHE_DIT_RESIDUAL_DIFF_THRESHOLD", "0.24")),
 )
 CACHE_DIT_WARMUP_STEPS = max(
-    0, int(os.getenv("CACHE_DIT_WARMUP_STEPS", "2"))
+    0, int(os.getenv("CACHE_DIT_WARMUP_STEPS", "1"))
 )
 CACHE_DIT_PRINT_SUMMARY = os.getenv("CACHE_DIT_PRINT_SUMMARY", "true").lower() in {
     "1",
@@ -110,20 +110,20 @@ SOL_ATTN_ENABLED = os.getenv("SOL_ATTN_ENABLED", "true").lower() in {
     "true",
     "yes",
 }
-SOL_ATTN_TAU_START = float(os.getenv("SOL_ATTN_TAU_START", "1.2"))
-SOL_ATTN_TAU_END = float(os.getenv("SOL_ATTN_TAU_END", "0.8"))
+SOL_ATTN_TAU_START = float(os.getenv("SOL_ATTN_TAU_START", "1.5"))
+SOL_ATTN_TAU_END = float(os.getenv("SOL_ATTN_TAU_END", "1.5"))
 SOL_ATTN_CURVE = os.getenv("SOL_ATTN_CURVE", "cosine")
 SOL_ATTN_MIN_TOKENS = max(256, int(os.getenv("SOL_ATTN_MIN_TOKENS", "4096")))
-SOL_ATTN_STRICT = os.getenv("SOL_ATTN_STRICT", "false").lower() in {
+SOL_ATTN_STRICT = os.getenv("SOL_ATTN_STRICT", "true").lower() in {
     "1",
     "true",
     "yes",
 }
 SOL_ATTN_DENSE_PERCENT = min(
-    0.9, max(0.0, float(os.getenv("SOL_ATTN_DENSE_PERCENT", "0.2")))
+    0.9, max(0.0, float(os.getenv("SOL_ATTN_DENSE_PERCENT", "0")))
 )
 SOL_ATTN_THRESH_TYPE = os.getenv("SOL_ATTN_THRESH_TYPE", "diag")
-SOL_ATTN_INT8_QK = os.getenv("SOL_ATTN_INT8_QK", "false").lower() in {
+SOL_ATTN_INT8_QK = os.getenv("SOL_ATTN_INT8_QK", "true").lower() in {
     "1",
     "true",
     "yes",
@@ -136,7 +136,7 @@ SOL_ATTN_INT8_PV = os.getenv("SOL_ATTN_INT8_PV", "false").lower() in {
 SOL_ATTN_SINK_CONDITIONING = os.getenv(
     "SOL_ATTN_SINK_CONDITIONING", "exact_kv"
 )
-SOL_ATTN_DENSE_BLOCKS = os.getenv("SOL_ATTN_DENSE_BLOCKS", "0-2,-1")
+SOL_ATTN_DENSE_BLOCKS = os.getenv("SOL_ATTN_DENSE_BLOCKS", "")
 ASPECT_RATIOS = {"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}
 CORS_ORIGINS = tuple(
     item.strip()

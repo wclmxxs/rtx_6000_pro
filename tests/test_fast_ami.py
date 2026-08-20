@@ -104,3 +104,20 @@ def test_forced_warmup_ignores_baked_marker(monkeypatch, tmp_path):
     assert result["task_id"] == "new-task"
     assert len(calls) == 2
     assert json.loads(marker.read_text())["task_id"] == "new-task"
+
+
+def test_install_migrates_only_the_previous_sparse_defaults():
+    script = (ROOT / "install.sh").read_text()
+    assert (
+        "migrate_env_default SOL_ATTN_TAU_START 1.2 1.5" in script
+    )
+    assert (
+        "migrate_env_default SOL_ATTN_TAU_END 0.8 1.5" in script
+    )
+    assert (
+        "migrate_env_default SOL_ATTN_DENSE_PERCENT 0.2 0" in script
+    )
+    assert (
+        'migrate_env_default SOL_ATTN_DENSE_BLOCKS 0-2,-1 ""' in script
+    )
+    assert "migrate_env_default CACHE_DIT_WARMUP_STEPS 2 1" in script

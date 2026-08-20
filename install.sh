@@ -39,6 +39,14 @@ set_env() {
   fi
 }
 
+migrate_env_default() {
+  local key=$1 old_value=$2 new_value=$3 current
+  current=$(sed -n "s/^${key}=//p" .env | tail -1)
+  if [[ ${current} == "${old_value}" ]]; then
+    set_env "${key}" "${new_value}"
+  fi
+}
+
 sudo -v
 # This may be a cloned AMI whose old reporter was started by Docker before
 # install.sh. Stop it immediately, and once more after bootstrap_host.sh in
@@ -132,6 +140,18 @@ fi
 
 set_env HOST_UID "$(id -u)"
 set_env HOST_GID "$(id -g)"
+
+# Preserve operator overrides, but move installations that still carry the
+# previous conservative defaults to the validated long-video SM120 profile.
+migrate_env_default RELEASE_ID \
+  h3-rtx6000pro-20260819-v1 h3-rtx6000pro-20260820-v2
+migrate_env_default CACHE_DIT_WARMUP_STEPS 2 1
+migrate_env_default SOL_ATTN_TAU_START 1.2 1.5
+migrate_env_default SOL_ATTN_TAU_END 0.8 1.5
+migrate_env_default SOL_ATTN_STRICT false true
+migrate_env_default SOL_ATTN_DENSE_PERCENT 0.2 0
+migrate_env_default SOL_ATTN_INT8_QK false true
+migrate_env_default SOL_ATTN_DENSE_BLOCKS 0-2,-1 ""
 
 set -a
 # shellcheck disable=SC1091

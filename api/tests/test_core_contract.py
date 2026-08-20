@@ -144,17 +144,17 @@ def test_larry_6nfe_turbo_profile_and_graph():
     assert sol["inputs"] == {
         "model": [sigma_id, 0],
         "enabled": True,
-        "tau_start": 1.2,
-        "tau_end": 0.8,
+        "tau_start": 1.5,
+        "tau_end": 1.5,
         "curve": "cosine",
         "min_tokens": 4096,
-        "strict": False,
-        "dense_percent": 0.2,
+        "strict": True,
+        "dense_percent": 0.0,
         "thresh_type": "diag",
-        "int8_qk": False,
+        "int8_qk": True,
         "int8_pv": False,
         "sink_conditioning": "exact_kv",
-        "dense_blocks": "0-2,-1",
+        "dense_blocks": "",
     }
     cache_id, cache = graph_entry(
         graph, "CacheDiT_MiniMax_H3_Advanced_Optimizer"
@@ -165,7 +165,7 @@ def test_larry_6nfe_turbo_profile_and_graph():
         "fn_blocks": 1,
         "bn_blocks": 0,
         "residual_diff_threshold": 0.24,
-        "warmup_steps": 2,
+        "warmup_steps": 1,
         "print_summary": True,
     }
     _, scheduler = graph_entry(graph, "BasicScheduler")
