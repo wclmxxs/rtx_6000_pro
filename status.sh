@@ -41,10 +41,16 @@ for ((index=0; index<gpu_count; index++)); do
   fi
 done
 
+echo "=== watchdog ==="
+if [[ -f ${DATA_ROOT}/watchdog/status.json ]]; then
+  jq '{ok,enabled,timestamp,instances}' "${DATA_ROOT}/watchdog/status.json"
+else
+  echo "watchdog has not written status yet"
+fi
+
 echo "=== registration ==="
 if [[ -f ${DATA_ROOT}/reporter/status.json ]]; then
   jq . "${DATA_ROOT}/reporter/status.json"
 else
   echo "reporter has not written status yet"
 fi
-

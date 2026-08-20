@@ -1,5 +1,7 @@
 import pytest
 from pydantic import ValidationError
+import asyncio
+import httpx
 import json
 import uuid
 
@@ -10,6 +12,7 @@ from app.main import (
     cleanup_expired_outputs_once,
     cleanup_working_files,
     choose_worker_index,
+    record_job_progress,
     resolve_spatial_shape,
     sanitize_upload_name,
     sampling_profile_for,
@@ -56,6 +59,69 @@ def test_worker_selection_skips_unhealthy_workers():
     assert choose_worker_index([None, 1, None, 0], cursor=0) == 3
     with pytest.raises(RuntimeError, match="no healthy"):
         choose_worker_index([None, None, None, None], cursor=0)
+
+
+def test_worker_selection_enforces_atomic_queue_capacity():
+    assert (
+        choose_worker_index(
+            [1, 0], cursor=0, required_slots=2, max_queue_depth=2
+        )
+        == 1
+    )
+    with pytest.raises(OverflowError, match="queue capacity"):
+        choose_worker_index(
+            [1, 2], cursor=0, required_slots=2, max_queue_depth=2
+        )
+
+
+def test_job_progress_timestamp_only_changes_when_state_advances():
+    job = {"status": "queued", "progress": 0, "_last_status": "queued"}
+    record_job_progress(job, "queued", 0, 101.0)
+    assert "_last_progress_at" not in job
+    record_job_progress(job, "in_progress", 1, 102.0)
+    assert job["_last_progress_at"] == 102.0
+    record_job_progress(job, "in_progress", 1, 103.0)
+    assert job["_last_progress_at"] == 102.0
+
+
+def test_lost_prompt_is_failed_after_orphan_grace(monkeypatch, tmp_path):
+    from app import main
+
+    job_id = str(uuid.uuid4())
+    monkeypatch.setattr(main, "JOB_ROOT", tmp_path / "jobs")
+    monkeypatch.setattr(main, "INPUT_ROOT", tmp_path / "input")
+    monkeypatch.setattr(main, "COMFY_OUTPUT_ROOT", tmp_path / "comfy-output")
+    monkeypatch.setattr(main, "ORPHAN_GRACE_SECONDS", 30)
+    monkeypatch.setattr(main.time, "time", lambda: 200.0)
+
+    def handler(request):
+        if request.url.path == "/queue":
+            return httpx.Response(
+                200, json={"queue_running": [], "queue_pending": []}
+            )
+        return httpx.Response(200, json={})
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        main.httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: real_client(
+            transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout")
+        ),
+    )
+    job = {
+        "id": job_id,
+        "status": "in_progress",
+        "progress": 1,
+        "_prompt_ids": ["lost-prompt"],
+        "_worker_url": "http://worker",
+        "_orphaned_at": 169.0,
+        "_gpu_started_at": 150.0,
+    }
+    asyncio.run(main.update_job(job))
+    failed = main.load_job(job_id)
+    assert failed and failed["status"] == "failed"
+    assert "lost the prompt" in failed["error"]["message"]
 
 
 def test_upload_name_is_safe_and_keeps_extension():

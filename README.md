@@ -1,6 +1,6 @@
 # MiniMax-H3 RTX PRO 6000 部署
 
-每张 GPU 启动一套独立的 `ComfyUI + API`，运行 NVFP4 底模、Larry Turbo LoRA、Sol-Attn 稀疏注意力和 Cache-DiT；SageAttention2 保留为 Sol-Attn 的 dense fallback。GPU 数量由 `nvidia-smi` 自动识别；8 卡机器会注册 8 个可独立调度的实例，端口默认是 `30010`～`30017`。
+每张 GPU 启动一套独立的 `ComfyUI + API`，运行 NVFP4 底模、Larry Turbo LoRA、Sol-Attn 稀疏注意力和 Cache-DiT；SageAttention2 保留为 Sol-Attn 的 dense fallback。GPU 数量由 `nvidia-smi` 自动识别；8 卡机器会注册 8 个可独立调度的实例，端口默认是 `30010`～`30017`。节点另有一个 watchdog 统一监控所有 GPU worker，不参与推理。
 
 默认注册信息：
 
@@ -99,6 +99,8 @@ curl -sS -X POST http://NODE_IP:30010/ic/capcut/edit_gateway/v2/query/video_gene
 
 任务完成或失败后，会立即删除该任务下载的输入素材和 ComfyUI 原始产物；对外提供的最终 MP4 默认保留 12 小时。后台每 60 秒清理一次，到期任务变为 `expired`，内容接口返回 HTTP 410。可通过 `.env` 的 `OUTPUT_TTL_SECONDS` 和 `CLEANUP_INTERVAL_SECONDS` 调整。
 
+每个单卡实例默认最多容纳 2 个 ComfyUI prompt（运行中和排队中合计）；满载时新请求返回 HTTP 429 和 `Retry-After: 5`，由网关改投其他 lease 或稍后重试。多输出请求按实际 prompt 数一次性占用容量，不会把半个任务塞进队列。
+
 接口参数：resolution 仅支持 `768P`/`704P`，duration 为 4～15，ratio 支持 `adaptive`、`21:9`、`16:9`、`4:3`、`1:1`、`3:4`、`9:16`。`num_inference_steps` 按真实 NFE 计数；4/6/8 NFE 的 T2V/FL2V 自动使用 Turbo LoRA，其他步数走底模采样器，REF2V 始终不使用该 LoRA。
 
 Cache-DiT 默认对所有 H3 任务开启，参数为 `Fn=1`、`Bn=0`、`warmup=1`、`RDT=0.24`，主要针对 4/6/8 NFE Turbo 路径。它会复用相邻去噪步的中间结果，属于有损加速；大幅运动、复杂镜头需要做画质回归。安装器会将上一版默认的 `0.35` 自动回滚到 `0.24`，但保留人工设置的其他阈值。要立即关闭缓存，在 `.env` 写入 `CACHE_DIT_ENABLED=false` 后重建 API 镜像并重建 API 容器，worker 镜像无需回退。
@@ -115,7 +117,12 @@ Sol-Attn 默认使用针对长视频的激进 SM120 配置：所有采样 step�
 ./status.sh
 ./smoke_test.sh
 sudo docker compose --env-file .env -f .generated/compose.yaml logs -f h3-reporter
+sudo docker compose --env-file .env -f .generated/compose.yaml logs -f h3-watchdog
 ```
+
+worker 默认设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，降低长短视频混跑导致的 CUDA allocator 碎片。watchdog 每 15 秒检查各卡日志、容器健康和任务进度：检测到 CUDA OOM 会立即摘除该卡的健康标记并重启；无运行任务却长期排队、运行任务超过动态时限不前进、或容器持续不健康也会触发同样恢复。重启前该卡上的 `queued/running` 任务会明确失败；API 不可达时，重启后 orphan 检测会兜底失败旧任务，不会永久卡住。其他 GPU 的容器、任务和注册不受影响。
+
+默认阈值为排队 300 秒、运行至少 600 秒；运行上限还会按 `duration × NFE × 4` 秒自动放大，避免 15 秒或高步数任务误判。相关参数均可通过 `.env` 的 `WATCHDOG_*`、`MAX_QUEUE_DEPTH` 和 `ORPHAN_GRACE_SECONDS` 调整。watchdog 的当前判断和重启原因位于 `${DATA_ROOT}/watchdog/status.json`，`./status.sh` 会直接展示。
 
 发布或模型版本变化时修改 `RELEASE_ID` 后重跑 `./install.sh`，会重新逐卡预热后再上报。实例是单卡 worker，单实例 concurrency 应配置为 1；网关在同一 service_id 下调度所有机器的全部实例。
 

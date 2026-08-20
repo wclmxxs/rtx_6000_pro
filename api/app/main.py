@@ -59,6 +59,11 @@ OUTPUT_TTL_SECONDS = max(60, int(os.getenv("OUTPUT_TTL_SECONDS", "43200")))
 CLEANUP_INTERVAL_SECONDS = max(
     5, int(os.getenv("CLEANUP_INTERVAL_SECONDS", "60"))
 )
+MAX_QUEUE_DEPTH = max(1, int(os.getenv("MAX_QUEUE_DEPTH", "2")))
+ORPHAN_GRACE_SECONDS = max(5, int(os.getenv("ORPHAN_GRACE_SECONDS", "30")))
+WATCHDOG_MARKER = Path(
+    os.getenv("WATCHDOG_MARKER", str(DATA_ROOT / "watchdog.json"))
+).resolve()
 API_KEY = os.getenv("API_KEY", "")
 ALLOW_REMOTE_MEDIA = os.getenv("ALLOW_REMOTE_MEDIA", "true").lower() in {
     "1",
@@ -156,6 +161,7 @@ class Worker:
 
 WORKERS = tuple(Worker(id=index, url=url) for index, url in enumerate(COMFY_URLS))
 WORKER_SELECTION_LOCK = asyncio.Lock()
+JOB_UPDATE_LOCK = asyncio.Lock()
 NEXT_WORKER_INDEX = 0
 
 
@@ -962,10 +968,23 @@ def public_job(job: dict[str, Any]) -> VideoResponse:
     return VideoResponse(**{key: value for key, value in job.items() if key in fields})
 
 
-def choose_worker_index(depths: list[int | None], cursor: int) -> int:
+def choose_worker_index(
+    depths: list[int | None],
+    cursor: int,
+    required_slots: int = 1,
+    max_queue_depth: int | None = None,
+) -> int:
     available = [index for index, depth in enumerate(depths) if depth is not None]
     if not available:
         raise RuntimeError("no healthy ComfyUI workers")
+    if max_queue_depth is not None:
+        available = [
+            index
+            for index in available
+            if int(depths[index] or 0) + required_slots <= max_queue_depth
+        ]
+        if not available:
+            raise OverflowError("all healthy ComfyUI workers are at queue capacity")
     worker_count = len(depths)
     return min(
         available,
@@ -985,7 +1004,9 @@ async def read_worker_queue(
     return len(queue.get("queue_running") or []), len(queue.get("queue_pending") or [])
 
 
-async def select_worker(client: httpx.AsyncClient) -> Worker:
+async def select_worker(
+    client: httpx.AsyncClient, required_slots: int = 1
+) -> Worker:
     global NEXT_WORKER_INDEX
     results = await asyncio.gather(
         *(read_worker_queue(client, worker) for worker in WORKERS),
@@ -999,7 +1020,18 @@ async def select_worker(client: httpx.AsyncClient) -> Worker:
             running, pending = result
             depths.append(running + pending)
     try:
-        selected_index = choose_worker_index(depths, NEXT_WORKER_INDEX)
+        selected_index = choose_worker_index(
+            depths,
+            NEXT_WORKER_INDEX,
+            required_slots=required_slots,
+            max_queue_depth=MAX_QUEUE_DEPTH,
+        )
+    except OverflowError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=f"All healthy ComfyUI workers reached queue capacity ({MAX_QUEUE_DEPTH})",
+            headers={"Retry-After": "5"},
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(
             status_code=503, detail="No healthy ComfyUI workers are available"
@@ -1014,6 +1046,40 @@ def worker_for_job(job: dict[str, Any]) -> Worker:
         if worker.url == worker_url:
             return worker
     return Worker(id=int(job.get("worker_id") or 0), url=worker_url)
+
+
+def fail_job(job: dict[str, Any], message: str, now: float | None = None) -> None:
+    failed_at = time.time() if now is None else now
+    gpu_started_at = job.get("_gpu_started_at")
+    job.update(
+        {
+            "status": "failed",
+            "error": {"message": message},
+            "completed_at": int(failed_at),
+            "inference_time_s": (
+                round(failed_at - gpu_started_at, 3)
+                if gpu_started_at is not None
+                else None
+            ),
+            "file_path": None,
+            "file_paths": None,
+            "num_outputs": None,
+            "_last_progress_at": failed_at,
+            "_last_status": "failed",
+        }
+    )
+    cleanup_working_files(str(job.get("id") or ""))
+    save_job(job)
+
+
+def record_job_progress(
+    job: dict[str, Any], status: str, progress: int, now: float
+) -> None:
+    if job.get("_last_status") != status or int(job.get("progress") or 0) != progress:
+        job["_last_progress_at"] = now
+    job["_last_status"] = status
+    job["status"] = status
+    job["progress"] = progress
 
 
 async def copy_comfy_output(
@@ -1072,26 +1138,9 @@ async def update_job(job: dict[str, Any]) -> None:
         if status.get("completed"):
             completed += 1
 
+    observed_at = time.time()
     if failed:
-        completed_at = time.time()
-        gpu_started_at = job.get("_gpu_started_at")
-        job.update(
-            {
-                "status": "failed",
-                "error": {"message": failed},
-                "completed_at": int(completed_at),
-                "inference_time_s": (
-                    round(completed_at - gpu_started_at, 3)
-                    if gpu_started_at is not None
-                    else None
-                ),
-                "file_path": None,
-                "file_paths": None,
-                "num_outputs": None,
-            }
-        )
-        cleanup_working_files(job["id"])
-        save_job(job)
+        fail_job(job, failed, observed_at)
         return
 
     if completed == len(prompt_ids):
@@ -1130,20 +1179,43 @@ async def update_job(job: dict[str, Any]) -> None:
                 "file_paths": paths,
                 "num_outputs": len(paths),
                 "inference_time_s": round(completed_at - gpu_started_at, 3),
+                "_last_progress_at": completed_at,
+                "_last_status": "completed",
             }
         )
+        job.pop("_orphaned_at", None)
         cleanup_working_files(job["id"])
     elif running_ids.intersection(prompt_ids):
         if job.get("_gpu_started_at") is None:
-            gpu_started_at = time.time()
+            gpu_started_at = observed_at
             queued_at = job.get("_queued_at", job.get("_started_at", gpu_started_at))
             job["_gpu_started_at"] = gpu_started_at
             job["queue_time_s"] = round(max(0.0, gpu_started_at - queued_at), 3)
-        job["status"] = "in_progress"
-        job["progress"] = max(1, int(completed / len(prompt_ids) * 100))
+        record_job_progress(
+            job,
+            "in_progress",
+            max(1, int(completed / len(prompt_ids) * 100)),
+            observed_at,
+        )
+        job.pop("_orphaned_at", None)
     elif pending_ids.intersection(prompt_ids):
-        job["status"] = "queued"
-        job["progress"] = int(completed / len(prompt_ids) * 100)
+        record_job_progress(
+            job,
+            "queued",
+            int(completed / len(prompt_ids) * 100),
+            observed_at,
+        )
+        job.pop("_orphaned_at", None)
+    else:
+        orphaned_at = float(job.get("_orphaned_at") or observed_at)
+        job["_orphaned_at"] = orphaned_at
+        if observed_at - orphaned_at >= ORPHAN_GRACE_SECONDS:
+            fail_job(
+                job,
+                "ComfyUI lost the prompt after a worker restart or queue reset",
+                observed_at,
+            )
+            return
     save_job(job)
 
 
@@ -1155,22 +1227,22 @@ async def monitor_jobs() -> None:
                 try:
                     current_job = json.loads(path.read_text())
                     if current_job.get("status") in {"queued", "in_progress"}:
-                        await update_job(current_job)
+                        async with JOB_UPDATE_LOCK:
+                            latest = load_job(str(current_job.get("id") or ""))
+                            if latest and latest.get("status") in {
+                                "queued",
+                                "in_progress",
+                            }:
+                                await update_job(latest)
                 except httpx.HTTPError:
                     # A brief ComfyUI restart/network interruption is retryable.
                     continue
                 except Exception as exc:
                     if current_job and current_job.get("id"):
-                        current_job.update(
-                            {
-                                "status": "failed",
-                                "error": {"message": str(exc)},
-                                "file_path": None,
-                                "file_paths": None,
-                            }
-                        )
-                        cleanup_working_files(str(current_job["id"]))
-                        save_job(current_job)
+                        async with JOB_UPDATE_LOCK:
+                            latest = load_job(str(current_job["id"])) or current_job
+                            if latest.get("status") in {"queued", "in_progress"}:
+                                fail_job(latest, str(exc))
         except Exception:
             pass
         await asyncio.sleep(1)
@@ -1281,8 +1353,45 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     )
 
 
+def active_watchdog_failure() -> dict[str, Any] | None:
+    if not WATCHDOG_MARKER.is_file():
+        return None
+    try:
+        marker = json.loads(WATCHDOG_MARKER.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"healthy": False, "reason": "watchdog marker is unreadable"}
+    return marker if marker.get("healthy") is False else None
+
+
+@app.post("/internal/watchdog/fail-active")
+async def watchdog_fail_active(
+    request: Request, _: None = Depends(require_api_key)
+) -> dict[str, Any]:
+    payload = await request.json()
+    reason = str(payload.get("reason") or "GPU worker restarted by watchdog")[:2000]
+    failed_ids: list[str] = []
+    async with JOB_UPDATE_LOCK:
+        for path in JOB_ROOT.glob("*.json"):
+            try:
+                job = json.loads(path.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            if job.get("status") not in {"queued", "in_progress"}:
+                continue
+            fail_job(job, reason)
+            failed_ids.append(str(job["id"]))
+    return {"ok": True, "failed": len(failed_ids), "task_ids": failed_ids}
+
+
 @app.get("/healthz")
 async def healthz(_: None = Depends(require_api_key)) -> dict[str, Any]:
+    watchdog_failure = active_watchdog_failure()
+    if watchdog_failure:
+        raise HTTPException(
+            status_code=503,
+            detail=f"GPU worker quarantined by watchdog: {watchdog_failure.get('reason')}",
+        )
+
     async def inspect(client: httpx.AsyncClient, worker: Worker) -> dict[str, Any]:
         try:
             stats_response, queue_response = await asyncio.gather(
@@ -1466,7 +1575,7 @@ async def create_video(
             # The next request sees this job in the selected worker's queue and
             # naturally chooses another GPU when one is available.
             async with WORKER_SELECTION_LOCK:
-                worker = await select_worker(client)
+                worker = await select_worker(client, required_slots=len(graphs))
                 for graph in graphs:
                     response = await client.post(
                         f"{worker.url}/prompt", json={"prompt": graph}
@@ -1478,6 +1587,9 @@ async def create_video(
                             json.dumps(payload["node_errors"], ensure_ascii=False)
                         )
                     prompt_ids.append(payload["prompt_id"])
+    except HTTPException:
+        cleanup_working_files(job_id)
+        raise
     except (ValueError, subprocess.CalledProcessError) as exc:
         cleanup_working_files(job_id)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1519,6 +1631,8 @@ async def create_video(
         "_queued_at": queued_at,
         "_gpu_started_at": None,
         "_started_at": queued_at,
+        "_last_progress_at": queued_at,
+        "_last_status": "queued",
     }
     save_job(job)
     return public_job(job)

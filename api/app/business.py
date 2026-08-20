@@ -256,16 +256,17 @@ def task_payload(job: dict[str, Any]) -> dict[str, Any]:
 async def submit(request: GenerationRequest) -> str:
     core_request = to_core_request(request)
     response = await core.create_video(core_request, None)
-    job = core.load_job(response.id)
-    if job is None:
-        raise HTTPException(status_code=500, detail="task record was not created")
-    job["_business"] = {
-        "resolution": request.resolution,
-        "duration": request.duration,
-        "ratio": request.ratio,
-        "nfe": request.num_inference_steps or DEFAULT_NFE,
-    }
-    core.save_job(job)
+    async with core.JOB_UPDATE_LOCK:
+        job = core.load_job(response.id)
+        if job is None:
+            raise HTTPException(status_code=500, detail="task record was not created")
+        job["_business"] = {
+            "resolution": request.resolution,
+            "duration": request.duration,
+            "ratio": request.ratio,
+            "nfe": request.num_inference_steps or DEFAULT_NFE,
+        }
+        core.save_job(job)
     return response.id
 
 

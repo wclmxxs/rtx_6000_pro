@@ -52,6 +52,7 @@ sudo -v
 # install.sh. Stop it immediately, and once more after bootstrap_host.sh in
 # case restarting Docker brought it back through restart: unless-stopped.
 sudo docker stop minimax-h3-reporter >/dev/null 2>&1 || true
+sudo docker stop minimax-h3-watchdog >/dev/null 2>&1 || true
 if [[ ${from_ami} == true ]]; then
   echo "AMI fast path: validating baked host runtime"
   for command in curl jq openssl python3 flock nvidia-smi docker; do
@@ -75,9 +76,13 @@ fi
 
 # Keep the old reporter stopped while refreshing the node identity.
 sudo docker stop minimax-h3-reporter >/dev/null 2>&1 || true
+sudo docker stop minimax-h3-watchdog >/dev/null 2>&1 || true
 
 if [[ -z $(sed -n 's/^API_KEY=//p' .env) ]]; then
   set_env API_KEY "$(openssl rand -hex 32)"
+fi
+if [[ -z $(sed -n 's/^WATCHDOG_IMAGE=//p' .env) ]]; then
+  set_env WATCHDOG_IMAGE "minimax-h3-watchdog:20260821-v1"
 fi
 
 detect_imds() {
@@ -149,6 +154,8 @@ migrate_env_default RELEASE_ID \
   h3-rtx6000pro-20260820-v2 h3-rtx6000pro-20260820-v3
 migrate_env_default RELEASE_ID \
   h3-rtx6000pro-20260820-v3 h3-rtx6000pro-20260820-v4
+migrate_env_default RELEASE_ID \
+  h3-rtx6000pro-20260820-v4 h3-rtx6000pro-20260821-v5
 migrate_env_default CACHE_DIT_WARMUP_STEPS 2 1
 migrate_env_default CACHE_DIT_RESIDUAL_DIFF_THRESHOLD 0.35 0.24
 migrate_env_default SOL_ATTN_TAU_START 1.2 1.5
@@ -171,7 +178,11 @@ fi
 
 echo "Detected ${gpu_count} GPUs on ${INSTANCE_ID} (${ADVERTISE_HOST})"
 
-sudo mkdir -p "${DATA_ROOT}/models" "${DATA_ROOT}/reporter" "${DATA_ROOT}/warmup"
+sudo mkdir -p \
+  "${DATA_ROOT}/models" \
+  "${DATA_ROOT}/reporter" \
+  "${DATA_ROOT}/watchdog" \
+  "${DATA_ROOT}/warmup"
 for ((index=0; index<gpu_count; index++)); do
   sudo mkdir -p \
     "${DATA_ROOT}/slots/${index}/input" \
@@ -179,6 +190,9 @@ for ((index=0; index<gpu_count; index++)); do
     "${DATA_ROOT}/slots/${index}/temp" \
     "${DATA_ROOT}/slots/${index}/user" \
     "${DATA_ROOT}/slots/${index}/api-data"
+  # install owns the maintenance window; do not carry a quarantine marker
+  # from the source AMI or an interrupted previous recovery into warmup.
+  sudo rm -f "${DATA_ROOT}/slots/${index}/api-data/watchdog.json"
 done
 sudo chown -R "$(id -u):$(id -g)" "${DATA_ROOT}"
 
@@ -225,6 +239,7 @@ build_image() {
 build_image docker/Dockerfile.worker "${WORKER_IMAGE}"
 build_image docker/Dockerfile.api "${API_IMAGE}" api
 build_image docker/Dockerfile.reporter "${REPORTER_IMAGE}" reporter
+build_image docker/Dockerfile.watchdog "${WATCHDOG_IMAGE}" watchdog
 
 python3 scripts/generate_compose.py \
   --data-root "${DATA_ROOT}" \
@@ -233,14 +248,15 @@ python3 scripts/generate_compose.py \
   --base-port "${API_BASE_PORT}" \
   --release-id "${RELEASE_ID}" \
   --worker-image "${WORKER_IMAGE}" \
-  --api-image "${API_IMAGE}"
+  --api-image "${API_IMAGE}" \
+  --watchdog-image "${WATCHDOG_IMAGE}"
 
 compose=(sudo docker compose --env-file .env -f .generated/compose.yaml)
 services=()
 for ((index=0; index<gpu_count; index++)); do
   services+=("h3-comfy-${index}" "h3-api-${index}")
 done
-"${compose[@]}" stop h3-reporter >/dev/null 2>&1 || true
+"${compose[@]}" stop h3-reporter h3-watchdog >/dev/null 2>&1 || true
 compose_up_args=(-d --remove-orphans)
 if [[ ${from_ami} == true ]]; then
   # EC2 AMIs preserve Docker container metadata, including stale health state
@@ -284,6 +300,27 @@ if [[ ${from_ami} == true ]]; then
   warmup_args+=(--force)
 fi
 python3 scripts/warmup.py "${warmup_args[@]}"
+
+watchdog_started_at=$(date +%s)
+"${compose[@]}" up -d h3-watchdog
+
+deadline=$((SECONDS + 60))
+watchdog_ready=false
+while (( SECONDS < deadline )); do
+  if [[ -f ${DATA_ROOT}/watchdog/status.json ]] \
+    && jq -e --argjson started "${watchdog_started_at}" \
+      '.ok == true and .timestamp >= $started' \
+      "${DATA_ROOT}/watchdog/status.json" >/dev/null 2>&1; then
+    watchdog_ready=true
+    break
+  fi
+  sleep 2
+done
+if [[ ${watchdog_ready} != true ]]; then
+  "${compose[@]}" logs --tail 100 h3-watchdog
+  echo "services are warm, but watchdog did not become ready" >&2
+  exit 1
+fi
 
 report_started_at=$(date +%s)
 "${compose[@]}" up -d h3-reporter

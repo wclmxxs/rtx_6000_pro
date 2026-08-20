@@ -66,6 +66,8 @@ def worker_service(gpu: dict[str, object], data_root: str) -> list[str]:
         "    init: true",
         "    user: ${HOST_UID}:${HOST_GID}",
         "    shm_size: 16gb",
+        "    environment:",
+        "      PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}",
         "    command:",
         "      - python",
         "      - main.py",
@@ -137,6 +139,9 @@ def api_service(
         "      COMFY_OUTPUT_ROOT: /comfy-output",
         "      OUTPUT_TTL_SECONDS: ${OUTPUT_TTL_SECONDS:-43200}",
         "      CLEANUP_INTERVAL_SECONDS: ${CLEANUP_INTERVAL_SECONDS:-60}",
+        "      MAX_QUEUE_DEPTH: ${MAX_QUEUE_DEPTH:-2}",
+        "      ORPHAN_GRACE_SECONDS: ${ORPHAN_GRACE_SECONDS:-30}",
+        "      WATCHDOG_MARKER: /data/watchdog.json",
         "      ALLOW_REMOTE_MEDIA: 'true'",
         "      MAX_MEDIA_BYTES: '4294967296'",
         "      REMOTE_MEDIA_HOST_ALLOWLIST: ${REMOTE_MEDIA_HOST_ALLOWLIST:-.byted.org}",
@@ -189,11 +194,15 @@ def main() -> None:
     parser.add_argument("--release-id", required=True)
     parser.add_argument("--worker-image", default=os.getenv("WORKER_IMAGE", ""))
     parser.add_argument("--api-image", default=os.getenv("API_IMAGE", ""))
+    parser.add_argument("--watchdog-image", default=os.getenv("WATCHDOG_IMAGE", ""))
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
     output_dir = (repo_root / args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    instances_mount = quote(
+        f"{output_dir / 'instances.json'}:/config/instances.json:ro"
+    )
     gpus = detect_gpus()
     cpu_per_gpu, memory_per_gpu_mb = detect_host_resources(len(gpus))
 
@@ -206,6 +215,22 @@ def main() -> None:
 
     compose.extend(
         [
+            "  h3-watchdog:",
+            "    image: ${WATCHDOG_IMAGE}",
+            "    container_name: minimax-h3-watchdog",
+            "    restart: unless-stopped",
+            "    init: true",
+            "    env_file: ../.env",
+            "    environment:",
+            "      WATCHDOG_CONFIG: /config/instances.json",
+            "      WATCHDOG_STATE: /state/status.json",
+            "      WATCHDOG_SLOTS_ROOT: /slots",
+            "    volumes:",
+            "      - /var/run/docker.sock:/var/run/docker.sock",
+            f"      - {instances_mount}",
+            f"      - {args.data_root}/slots:/slots",
+            f"      - {args.data_root}/watchdog:/state",
+            "",
             "  h3-reporter:",
             "    image: ${REPORTER_IMAGE}",
             "    container_name: minimax-h3-reporter",
@@ -250,6 +275,7 @@ def main() -> None:
             "release_id": args.release_id,
             "worker_image": args.worker_image,
             "api_image": args.api_image,
+            "watchdog_image": args.watchdog_image,
             "models": model_lock,
         },
         "instances": instances,
