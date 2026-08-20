@@ -101,7 +101,7 @@ curl -sS -X POST http://NODE_IP:30010/ic/capcut/edit_gateway/v2/query/video_gene
 
 接口参数：resolution 仅支持 `768P`/`704P`，duration 为 4～15，ratio 支持 `adaptive`、`21:9`、`16:9`、`4:3`、`1:1`、`3:4`、`9:16`。`num_inference_steps` 按真实 NFE 计数；4/6/8 NFE 的 T2V/FL2V 自动使用 Turbo LoRA，其他步数走底模采样器，REF2V 始终不使用该 LoRA。
 
-Cache-DiT 默认对所有 H3 任务开启，参数为 `Fn=1`、`Bn=0`、`warmup=1`、`RDT=0.35`，主要针对 4/6/8 NFE Turbo 路径。它会复用相邻去噪步的中间结果，属于有损加速；大幅运动、复杂镜头需要做画质回归。安装器会将仍使用旧默认 `0.24` 的 `.env` 自动迁移到 `0.35`，但保留人工设置的其他阈值。要立即回退，在 `.env` 写入 `CACHE_DIT_ENABLED=false` 后重建 API 镜像并重建 API 容器，worker 镜像无需回退。
+Cache-DiT 默认对所有 H3 任务开启，参数为 `Fn=1`、`Bn=0`、`warmup=1`、`RDT=0.24`，主要针对 4/6/8 NFE Turbo 路径。它会复用相邻去噪步的中间结果，属于有损加速；大幅运动、复杂镜头需要做画质回归。安装器会将上一版默认的 `0.35` 自动回滚到 `0.24`，但保留人工设置的其他阈值。要立即关闭缓存，在 `.env` 写入 `CACHE_DIT_ENABLED=false` 后重建 API 镜像并重建 API 容器，worker 镜像无需回退。
 
 Sol-Attn 默认使用针对长视频的激进 SM120 配置：所有采样 step、全部 50 个 transformer block 都走稀疏路径，固定 `tau=1.5`，并开启 residual INT8 Q/K；conditioning KV 仍保持精确，INT8 P/V 默认关闭。`strict=true` 会在内核异常时让任务失败，禁止静默回退形成虚假测速。短于 4096 token 的调用仍回退 SageAttention2。worker 运行镜像保留 Triton JIT 所需的 C/C++ 工具链和 Python 开发头文件；健康检查会在容器启动后实际初始化一次 Triton CUDA driver，并同时验证 Cache-DiT、Sol-Attn 节点。可通过 `.env` 的 `SOL_ATTN_*` 参数调整，或设置 `SOL_ATTN_ENABLED=false` 关闭。
 

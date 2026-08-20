@@ -36,7 +36,7 @@ def test_worker_and_api_are_bound_to_requested_gpu():
     assert "http://10.0.0.4:30013" in api
     assert "CACHE_DIT_ENABLED: ${CACHE_DIT_ENABLED:-true}" in api
     assert "CACHE_DIT_FN_BLOCKS: ${CACHE_DIT_FN_BLOCKS:-1}" in api
-    assert "CACHE_DIT_RESIDUAL_DIFF_THRESHOLD: ${CACHE_DIT_RESIDUAL_DIFF_THRESHOLD:-0.35}" in api
+    assert "CACHE_DIT_RESIDUAL_DIFF_THRESHOLD: ${CACHE_DIT_RESIDUAL_DIFF_THRESHOLD:-0.24}" in api
     assert "SOL_ATTN_ENABLED: ${SOL_ATTN_ENABLED:-true}" in api
     assert "SOL_ATTN_TAU_START: ${SOL_ATTN_TAU_START:-1.5}" in api
     assert 'SOL_ATTN_DENSE_BLOCKS: "${SOL_ATTN_DENSE_BLOCKS-}"' in api

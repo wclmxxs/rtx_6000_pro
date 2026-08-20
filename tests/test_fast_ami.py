@@ -121,4 +121,4 @@ def test_install_migrates_only_the_previous_sparse_defaults():
         'migrate_env_default SOL_ATTN_DENSE_BLOCKS 0-2,-1 ""' in script
     )
     assert "migrate_env_default CACHE_DIT_WARMUP_STEPS 2 1" in script
-    assert "migrate_env_default CACHE_DIT_RESIDUAL_DIFF_THRESHOLD 0.24 0.35" in script
+    assert "migrate_env_default CACHE_DIT_RESIDUAL_DIFF_THRESHOLD 0.35 0.24" in script
