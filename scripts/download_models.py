@@ -30,12 +30,24 @@ def main() -> None:
         "--manifest",
         default=str(Path(__file__).resolve().parents[1] / "config/models.lock.json"),
     )
+    parser.add_argument(
+        "--trust-existing-size",
+        action="store_true",
+        help="accept existing files with the locked size without recomputing SHA256",
+    )
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
     manifest = json.loads(Path(args.manifest).read_text())
-    required = sum(int(item["size"]) for item in manifest["files"])
     root.mkdir(parents=True, exist_ok=True)
+    required = sum(
+        int(item["size"])
+        for item in manifest["files"]
+        if not (
+            (destination := destination_for(root, item)).is_file()
+            and destination.stat().st_size == int(item["size"])
+        )
+    )
     free = shutil.disk_usage(root).free
     if free < required + 10 * 1024**3:
         raise SystemExit(
@@ -48,6 +60,10 @@ def main() -> None:
         destination = destination_for(root, item)
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.is_file() and destination.stat().st_size == int(item["size"]):
+            if args.trust_existing_size:
+                print(f"trusted existing size: {destination}", flush=True)
+                continue
+            print(f"verifying existing: {destination}", flush=True)
             actual = sha256(destination)
             if actual == item["sha256"]:
                 print(f"verified existing: {destination}", flush=True)

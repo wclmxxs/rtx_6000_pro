@@ -5,6 +5,26 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 cd "${ROOT}"
 mkdir -p .state
 
+from_ami=false
+case ${1:-} in
+  "") ;;
+  --from-ami) from_ami=true ;;
+  -h|--help)
+    echo "Usage: $0 [--from-ami]"
+    echo "  --from-ami  Trust baked model sizes and reuse existing Docker images."
+    exit 0
+    ;;
+  *)
+    echo "unknown argument: $1" >&2
+    echo "Usage: $0 [--from-ami]" >&2
+    exit 2
+    ;;
+esac
+if (( $# > 1 )); then
+  echo "Usage: $0 [--from-ami]" >&2
+  exit 2
+fi
+
 if [[ ! -f .env ]]; then
   cp config/env.example .env
 fi
@@ -20,12 +40,33 @@ set_env() {
 }
 
 sudo -v
-sudo scripts/bootstrap_host.sh
+# This may be a cloned AMI whose old reporter was started by Docker before
+# install.sh. Stop it immediately, and once more after bootstrap_host.sh in
+# case restarting Docker brought it back through restart: unless-stopped.
+sudo docker stop minimax-h3-reporter >/dev/null 2>&1 || true
+if [[ ${from_ami} == true ]]; then
+  echo "AMI fast path: validating baked host runtime"
+  for command in curl jq openssl python3 flock nvidia-smi docker; do
+    command -v "${command}" >/dev/null 2>&1 || {
+      echo "AMI fast path requires ${command}; run ./install.sh once to repair the host" >&2
+      exit 1
+    }
+  done
+  nvidia-smi -L >/dev/null
+  sudo systemctl enable --now docker >/dev/null
+  sudo docker info >/dev/null
+  sudo docker compose version
+else
+  sudo scripts/bootstrap_host.sh
+fi
 exec 9>.state/install.lock
 if ! flock -n 9; then
   echo "another install.sh process is running" >&2
   exit 1
 fi
+
+# Keep the old reporter stopped while refreshing the node identity.
+sudo docker stop minimax-h3-reporter >/dev/null 2>&1 || true
 
 if [[ -z $(sed -n 's/^API_KEY=//p' .env) ]]; then
   set_env API_KEY "$(openssl rand -hex 32)"
@@ -55,23 +96,36 @@ raise SystemExit(0 if address.version == 4 and address.is_global else 1)
 PY
 }
 
-advertise_host=$(sed -n 's/^ADVERTISE_HOST=//p' .env)
-if [[ -z ${advertise_host} ]]; then
-  advertise_host=$(detect_imds public-ipv4 || true)
+configured_advertise_host=$(sed -n 's/^ADVERTISE_HOST=//p' .env)
+detected_advertise_host=$(detect_imds public-ipv4 || true)
+if [[ -n ${detected_advertise_host} ]]; then
+  advertise_host=${detected_advertise_host}
+  if [[ ${configured_advertise_host} != "${advertise_host}" ]]; then
+    echo "Refreshing ADVERTISE_HOST from AWS IMDS: ${configured_advertise_host:-<empty>} -> ${advertise_host}"
+  fi
+  set_env ADVERTISE_HOST "${advertise_host}"
+else
+  advertise_host=${configured_advertise_host}
   [[ -n ${advertise_host} ]] || {
     echo "AWS IMDS did not return public-ipv4; set ADVERTISE_HOST to this node's public IPv4" >&2
     exit 1
   }
-  set_env ADVERTISE_HOST "${advertise_host}"
 fi
 if ! require_public_ipv4 "${advertise_host}"; then
   echo "ADVERTISE_HOST must be a public IPv4 address; got ${advertise_host}" >&2
   exit 1
 fi
 
-instance_id=$(sed -n 's/^INSTANCE_ID=//p' .env)
-if [[ -z ${instance_id} ]]; then
-  instance_id=$(detect_imds instance-id || hostname)
+configured_instance_id=$(sed -n 's/^INSTANCE_ID=//p' .env)
+detected_instance_id=$(detect_imds instance-id || true)
+if [[ -n ${detected_instance_id} ]]; then
+  instance_id=${detected_instance_id}
+  if [[ ${configured_instance_id} != "${instance_id}" ]]; then
+    echo "Refreshing INSTANCE_ID from AWS IMDS: ${configured_instance_id:-<empty>} -> ${instance_id}"
+  fi
+  set_env INSTANCE_ID "${instance_id}"
+else
+  instance_id=${configured_instance_id:-$(hostname)}
   [[ -n ${instance_id} ]] || { echo "unable to determine INSTANCE_ID" >&2; exit 1; }
   set_env INSTANCE_ID "${instance_id}"
 fi
@@ -110,16 +164,27 @@ if [[ ! -x .state/model-venv/bin/python ]]; then
   .state/model-venv/bin/pip install 'huggingface_hub>=0.34,<2' 'hf_xet>=1.1,<2'
 fi
 
+model_args=(--root "${DATA_ROOT}/models")
+if [[ ${from_ami} == true ]]; then
+  model_args+=(--trust-existing-size)
+fi
 HF_TOKEN=${HF_TOKEN:-} .state/model-venv/bin/python scripts/download_models.py \
-  --root "${DATA_ROOT}/models"
+  "${model_args[@]}"
 
 docker_cmd=(sudo docker)
-"${docker_cmd[@]}" build --progress=plain \
-  -f docker/Dockerfile.worker -t "${WORKER_IMAGE}" .
-"${docker_cmd[@]}" build --progress=plain \
-  -f docker/Dockerfile.api -t "${API_IMAGE}" .
-"${docker_cmd[@]}" build --progress=plain \
-  -f docker/Dockerfile.reporter -t "${REPORTER_IMAGE}" .
+build_image() {
+  local dockerfile=$1 image=$2
+  if [[ ${from_ami} == true ]] \
+    && "${docker_cmd[@]}" image inspect "${image}" >/dev/null 2>&1; then
+    echo "AMI fast path: reusing Docker image ${image}"
+    return
+  fi
+  "${docker_cmd[@]}" build --progress=plain \
+    -f "${dockerfile}" -t "${image}" .
+}
+build_image docker/Dockerfile.worker "${WORKER_IMAGE}"
+build_image docker/Dockerfile.api "${API_IMAGE}"
+build_image docker/Dockerfile.reporter "${REPORTER_IMAGE}"
 
 python3 scripts/generate_compose.py \
   --data-root "${DATA_ROOT}" \
@@ -159,12 +224,19 @@ if (( healthy != gpu_count )); then
   exit 1
 fi
 
-python3 scripts/warmup.py \
-  --gpu-count "${gpu_count}" \
-  --base-port "${API_BASE_PORT}" \
-  --parallelism "${WARMUP_PARALLELISM}" \
-  --release-id "${RELEASE_ID}" \
+warmup_args=(
+  --gpu-count "${gpu_count}"
+  --base-port "${API_BASE_PORT}"
+  --parallelism "${WARMUP_PARALLELISM}"
+  --release-id "${RELEASE_ID}"
   --marker-root "${DATA_ROOT}/warmup"
+)
+if [[ ${from_ami} == true ]]; then
+  # AMIs preserve old warmup markers but not GPU memory. Force warmup on the
+  # cloned machine so registration never exposes an entirely cold worker.
+  warmup_args+=(--force)
+fi
+python3 scripts/warmup.py "${warmup_args[@]}"
 
 report_started_at=$(date +%s)
 "${compose[@]}" up -d h3-reporter

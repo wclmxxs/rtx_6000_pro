@@ -18,9 +18,11 @@ def call(method: str, url: str, body: dict | None = None, timeout: int = 120) ->
         return json.load(response)
 
 
-def warm_one(host: str, port: int, release_id: str, marker_root: Path) -> dict:
+def warm_one(
+    host: str, port: int, release_id: str, marker_root: Path, force: bool = False
+) -> dict:
     marker = marker_root / f"gpu-{port}" / f"warm-{release_id}.json"
-    if marker.is_file():
+    if marker.is_file() and not force:
         return json.loads(marker.read_text())
     base = f"http://{host}:{port}"
     payload = {
@@ -72,6 +74,11 @@ def main() -> None:
     parser.add_argument("--parallelism", type=int, default=2)
     parser.add_argument("--release-id", required=True)
     parser.add_argument("--marker-root", default="/srv/minimax-h3/warmup")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="run warmup even when a marker from the same release exists",
+    )
     args = parser.parse_args()
 
     ports = [args.base_port + index for index in range(args.gpu_count)]
@@ -86,6 +93,7 @@ def main() -> None:
                 port,
                 args.release_id,
                 Path(args.marker_root),
+                args.force,
             ): port
             for port in ports
         }

@@ -21,6 +21,14 @@ cd rtx_6000_pro
 
 这是唯一必需的安装命令。它会安装 Docker/NVIDIA Container Toolkit、下载并校验固定 revision 的模型、构建镜像、按实际 GPU 数生成 Compose、启动、逐卡预热，然后注册实例。重复执行是幂等更新。
 
+从已经完整部署并验证过的 EC2 AMI 创建新实例时，使用快速启动模式：
+
+```bash
+./install.sh --from-ami
+```
+
+该模式仍会从 IMDS 刷新公网 IP 和 instance-id、重新生成 Compose、启动并逐卡强制预热、最后重新注册；但已有模型只检查锁定文件大小，不再读取约 47GB 数据计算 SHA256，已有 Docker 镜像也会直接复用。若模型或镜像缺失，仍会自动下载或构建。普通 `./install.sh` 保持完整哈希校验和构建流程，适合全新机器及发布验证。
+
 如需覆盖默认值，首次运行前执行：
 
 ```bash
@@ -29,7 +37,7 @@ vim .env
 ./install.sh
 ```
 
-`ADVERTISE_HOST` 和 `INSTANCE_ID` 为空时会从 AWS IMDS 自动读取公网 IPv4 和 instance-id。公网地址不可用时安装会直接失败，不会退回私网 IP；此时必须在 `.env` 手工填写公网 IPv4。模型文件默认放在 `/srv/minimax-h3/models`。`.env` 中的 `API_KEY` 会自动生成，仅用于节点内部健康检查和兼容的 `/v1` API。
+每次运行 `install.sh` 都会优先从 AWS IMDS 重新读取公网 IPv4 和 instance-id，并覆盖 `.env` 中可能由源 AMI 遗留的 `ADVERTISE_HOST` 和 `INSTANCE_ID`；刷新前会先停止旧 Reporter，避免新实例以源实例身份继续注册。因此由已部署机器制作的 AMI 启动后，可以直接重新执行 `./install.sh`。IMDS 不可用时才使用 `.env` 中的手工配置；公网地址也不可用时安装会直接失败，不会退回私网 IP。模型文件默认放在 `/srv/minimax-h3/models`。`.env` 中的 `API_KEY` 会自动生成，仅用于节点内部健康检查和兼容的 `/v1` API。
 
 远程素材默认允许公网地址和 `.byted.org` 内网域名；其他内网素材域名要加入 `.env` 的 `REMOTE_MEDIA_HOST_ALLOWLIST`，用逗号分隔。
 
