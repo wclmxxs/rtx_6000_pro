@@ -7,6 +7,7 @@ ARG TURBO_NODE_COMMIT=4274783a23afcfdbea3b4876cb79effd6c510785
 ARG SAGEATTENTION_COMMIT=eb615cf6cf4d221338033340ee2de1c37fbdba4a
 ARG CACHEDIT_COMFY_COMMIT=1d92bbd86ec59aa6223fe2368849b7413a1acb93
 ARG CACHEDIT_VERSION=1.2.0
+ARG SOL_ATTN_COMMIT=930a4d6e432ff8b8ed5e30ff2f72519b92d69bdf
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -51,6 +52,13 @@ RUN git clone https://github.com/Jasonzzt/ComfyUI-CacheDiT.git \
     && test "$(git -C /opt/ComfyUI/custom_nodes/ComfyUI-CacheDiT rev-parse HEAD)" \
       = "${CACHEDIT_COMFY_COMMIT}" \
     && /opt/venv/bin/pip install "cache-dit==${CACHEDIT_VERSION}"
+
+RUN git clone https://github.com/Saganaki22/ComfyUI-sol-attn.git \
+      /opt/ComfyUI/custom_nodes/ComfyUI-sol-attn \
+    && git -C /opt/ComfyUI/custom_nodes/ComfyUI-sol-attn \
+      checkout --detach "${SOL_ATTN_COMMIT}" \
+    && test "$(git -C /opt/ComfyUI/custom_nodes/ComfyUI-sol-attn rev-parse HEAD)" \
+      = "${SOL_ATTN_COMMIT}"
 
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04
 

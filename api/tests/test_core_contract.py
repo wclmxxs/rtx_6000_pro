@@ -138,11 +138,29 @@ def test_larry_6nfe_turbo_profile_and_graph():
         "low_vram": False,
     }
     lora_id, _ = graph_entry(graph, "MiniMaxH3TurboLoRA")
+    sigma_id, sigma_shift = graph_entry(graph, "MiniMaxH3SigmaShift")
+    assert sigma_shift["inputs"]["model"] == [lora_id, 0]
+    sol_id, sol = graph_entry(graph, "MiniMaxH3ScheduledSolAttentionPatch")
+    assert sol["inputs"] == {
+        "model": [sigma_id, 0],
+        "enabled": True,
+        "tau_start": 1.2,
+        "tau_end": 0.8,
+        "curve": "cosine",
+        "min_tokens": 4096,
+        "strict": False,
+        "dense_percent": 0.2,
+        "thresh_type": "diag",
+        "int8_qk": False,
+        "int8_pv": False,
+        "sink_conditioning": "exact_kv",
+        "dense_blocks": "0-2,-1",
+    }
     cache_id, cache = graph_entry(
         graph, "CacheDiT_MiniMax_H3_Advanced_Optimizer"
     )
     assert cache["inputs"] == {
-        "model": [lora_id, 0],
+        "model": [sol_id, 0],
         "enable": True,
         "fn_blocks": 1,
         "bn_blocks": 0,
@@ -150,8 +168,8 @@ def test_larry_6nfe_turbo_profile_and_graph():
         "warmup_steps": 2,
         "print_summary": True,
     }
-    _, sigma_shift = graph_entry(graph, "MiniMaxH3SigmaShift")
-    assert sigma_shift["inputs"]["model"] == [cache_id, 0]
+    _, scheduler = graph_entry(graph, "BasicScheduler")
+    assert scheduler["inputs"]["model"] == [cache_id, 0]
     assert len(graph_nodes(graph, "MiniMaxH3TurboSampler")) == 1
     assert not graph_nodes(graph, "KSamplerSelect")
     assert graph_nodes(graph, "BasicScheduler")[0]["inputs"]["steps"] == 6
@@ -167,9 +185,28 @@ def test_cache_dit_can_be_disabled_without_removing_turbo(monkeypatch):
 
     graph = build_graph(request, [], 1344, 768, 124, 1101, "job", 0)
     assert not graph_nodes(graph, "CacheDiT_MiniMax_H3_Advanced_Optimizer")
-    lora_id, _ = graph_entry(graph, "MiniMaxH3TurboLoRA")
-    _, sigma_shift = graph_entry(graph, "MiniMaxH3SigmaShift")
-    assert sigma_shift["inputs"]["model"] == [lora_id, 0]
+    sol_id, _ = graph_entry(graph, "MiniMaxH3ScheduledSolAttentionPatch")
+    _, scheduler = graph_entry(graph, "BasicScheduler")
+    assert scheduler["inputs"]["model"] == [sol_id, 0]
+
+
+def test_sol_attn_can_be_disabled_without_removing_cache(monkeypatch):
+    from app import main
+
+    data = payload(short_edge=768)
+    data["num_inference_steps"] = 7
+    request = VideoRequest.model_validate(data)
+    monkeypatch.setattr(main, "SOL_ATTN_ENABLED", False)
+
+    graph = build_graph(request, [], 1344, 768, 124, 1101, "job", 0)
+    assert not graph_nodes(graph, "MiniMaxH3ScheduledSolAttentionPatch")
+    sigma_id, _ = graph_entry(graph, "MiniMaxH3SigmaShift")
+    cache_id, cache = graph_entry(
+        graph, "CacheDiT_MiniMax_H3_Advanced_Optimizer"
+    )
+    assert cache["inputs"]["model"] == [sigma_id, 0]
+    _, scheduler = graph_entry(graph, "BasicScheduler")
+    assert scheduler["inputs"]["model"] == [cache_id, 0]
 
 
 def test_larry_turbo_supports_480_and_4_or_8_nfe():

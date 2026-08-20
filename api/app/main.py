@@ -105,6 +105,38 @@ CACHE_DIT_PRINT_SUMMARY = os.getenv("CACHE_DIT_PRINT_SUMMARY", "true").lower() i
     "true",
     "yes",
 }
+SOL_ATTN_ENABLED = os.getenv("SOL_ATTN_ENABLED", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+SOL_ATTN_TAU_START = float(os.getenv("SOL_ATTN_TAU_START", "1.2"))
+SOL_ATTN_TAU_END = float(os.getenv("SOL_ATTN_TAU_END", "0.8"))
+SOL_ATTN_CURVE = os.getenv("SOL_ATTN_CURVE", "cosine")
+SOL_ATTN_MIN_TOKENS = max(256, int(os.getenv("SOL_ATTN_MIN_TOKENS", "4096")))
+SOL_ATTN_STRICT = os.getenv("SOL_ATTN_STRICT", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+SOL_ATTN_DENSE_PERCENT = min(
+    0.9, max(0.0, float(os.getenv("SOL_ATTN_DENSE_PERCENT", "0.2")))
+)
+SOL_ATTN_THRESH_TYPE = os.getenv("SOL_ATTN_THRESH_TYPE", "diag")
+SOL_ATTN_INT8_QK = os.getenv("SOL_ATTN_INT8_QK", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+SOL_ATTN_INT8_PV = os.getenv("SOL_ATTN_INT8_PV", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+SOL_ATTN_SINK_CONDITIONING = os.getenv(
+    "SOL_ATTN_SINK_CONDITIONING", "exact_kv"
+)
+SOL_ATTN_DENSE_BLOCKS = os.getenv("SOL_ATTN_DENSE_BLOCKS", "0-2,-1")
 ASPECT_RATIOS = {"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}
 CORS_ORIGINS = tuple(
     item.strip()
@@ -668,6 +700,35 @@ def build_graph(
                 "low_vram": False,
             },
         )
+    sampling_model = new_node(
+        graph,
+        "MiniMaxH3SigmaShift",
+        {
+            "model": [sampling_model, 0],
+            "shift_video": profile.shift_video,
+            "shift_audio": profile.shift_audio,
+        },
+    )
+    if SOL_ATTN_ENABLED:
+        sampling_model = new_node(
+            graph,
+            "MiniMaxH3ScheduledSolAttentionPatch",
+            {
+                "model": [sampling_model, 0],
+                "enabled": True,
+                "tau_start": SOL_ATTN_TAU_START,
+                "tau_end": SOL_ATTN_TAU_END,
+                "curve": SOL_ATTN_CURVE,
+                "min_tokens": SOL_ATTN_MIN_TOKENS,
+                "strict": SOL_ATTN_STRICT,
+                "dense_percent": SOL_ATTN_DENSE_PERCENT,
+                "thresh_type": SOL_ATTN_THRESH_TYPE,
+                "int8_qk": SOL_ATTN_INT8_QK,
+                "int8_pv": SOL_ATTN_INT8_PV,
+                "sink_conditioning": SOL_ATTN_SINK_CONDITIONING,
+                "dense_blocks": SOL_ATTN_DENSE_BLOCKS,
+            },
+        )
     if CACHE_DIT_ENABLED:
         sampling_model = new_node(
             graph,
@@ -682,15 +743,7 @@ def build_graph(
                 "print_summary": CACHE_DIT_PRINT_SUMMARY,
             },
         )
-    shifted_model = new_node(
-        graph,
-        "MiniMaxH3SigmaShift",
-        {
-            "model": [sampling_model, 0],
-            "shift_video": profile.shift_video,
-            "shift_audio": profile.shift_audio,
-        },
-    )
+    shifted_model = sampling_model
 
     if req.task in {"t2va", "fl2va"}:
         conditioning_inputs: dict[str, Any] = {
@@ -1270,8 +1323,20 @@ async def healthz(_: None = Depends(require_api_key)) -> dict[str, Any]:
             "service_model": "MiniMax-H3",
             "base_model": MODEL_NAME,
             "checkpoint": "NVFP4",
-            "attention": "SageAttention2",
+            "attention": "Sol-Attn sparse with SageAttention2 fallback",
             "turbo_lora": TURBO_LORA if TURBO_ENABLED else None,
+            "sol_attn": {
+                "enabled": SOL_ATTN_ENABLED,
+                "tau_start": SOL_ATTN_TAU_START,
+                "tau_end": SOL_ATTN_TAU_END,
+                "curve": SOL_ATTN_CURVE,
+                "dense_percent": SOL_ATTN_DENSE_PERCENT,
+                "min_tokens": SOL_ATTN_MIN_TOKENS,
+                "sink_conditioning": SOL_ATTN_SINK_CONDITIONING,
+                "dense_blocks": SOL_ATTN_DENSE_BLOCKS,
+                "int8_qk": SOL_ATTN_INT8_QK,
+                "int8_pv": SOL_ATTN_INT8_PV,
+            },
             "cache_dit": {
                 "enabled": CACHE_DIT_ENABLED,
                 "fn_blocks": CACHE_DIT_FN_BLOCKS,
