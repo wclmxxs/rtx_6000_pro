@@ -95,7 +95,7 @@ CACHE_DIT_FN_BLOCKS = max(1, int(os.getenv("CACHE_DIT_FN_BLOCKS", "1")))
 CACHE_DIT_BN_BLOCKS = max(0, int(os.getenv("CACHE_DIT_BN_BLOCKS", "0")))
 CACHE_DIT_RESIDUAL_DIFF_THRESHOLD = max(
     0.001,
-    float(os.getenv("CACHE_DIT_RESIDUAL_DIFF_THRESHOLD", "0.24")),
+    float(os.getenv("CACHE_DIT_RESIDUAL_DIFF_THRESHOLD", "0.35")),
 )
 CACHE_DIT_WARMUP_STEPS = max(
     0, int(os.getenv("CACHE_DIT_WARMUP_STEPS", "1"))

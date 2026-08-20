@@ -145,7 +145,10 @@ set_env HOST_GID "$(id -g)"
 # previous conservative defaults to the validated long-video SM120 profile.
 migrate_env_default RELEASE_ID \
   h3-rtx6000pro-20260819-v1 h3-rtx6000pro-20260820-v2
+migrate_env_default RELEASE_ID \
+  h3-rtx6000pro-20260820-v2 h3-rtx6000pro-20260820-v3
 migrate_env_default CACHE_DIT_WARMUP_STEPS 2 1
+migrate_env_default CACHE_DIT_RESIDUAL_DIFF_THRESHOLD 0.24 0.35
 migrate_env_default SOL_ATTN_TAU_START 1.2 1.5
 migrate_env_default SOL_ATTN_TAU_END 0.8 1.5
 migrate_env_default SOL_ATTN_STRICT false true

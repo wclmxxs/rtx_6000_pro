@@ -164,7 +164,7 @@ def test_larry_6nfe_turbo_profile_and_graph():
         "enable": True,
         "fn_blocks": 1,
         "bn_blocks": 0,
-        "residual_diff_threshold": 0.24,
+        "residual_diff_threshold": 0.35,
         "warmup_steps": 1,
         "print_summary": True,
     }
