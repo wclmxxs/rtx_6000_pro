@@ -36,14 +36,6 @@ RUN git clone https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git \
     && git -C /opt/ComfyUI/custom_nodes/ComfyUI-MiniMax-H3-Turbo \
       checkout --detach "${TURBO_NODE_COMMIT}"
 
-RUN git clone https://github.com/Jasonzzt/ComfyUI-CacheDiT.git \
-      /opt/ComfyUI/custom_nodes/ComfyUI-CacheDiT \
-    && git -C /opt/ComfyUI/custom_nodes/ComfyUI-CacheDiT \
-      checkout --detach "${CACHEDIT_COMFY_COMMIT}" \
-    && test "$(git -C /opt/ComfyUI/custom_nodes/ComfyUI-CacheDiT rev-parse HEAD)" \
-      = "${CACHEDIT_COMFY_COMMIT}" \
-    && /opt/venv/bin/pip install "cache-dit==${CACHEDIT_VERSION}"
-
 RUN git clone https://github.com/thu-ml/SageAttention.git /src/SageAttention \
     && git -C /src/SageAttention checkout --detach "${SAGEATTENTION_COMMIT}" \
     && test "$(git -C /src/SageAttention rev-parse HEAD)" = "${SAGEATTENTION_COMMIT}" \
@@ -51,6 +43,14 @@ RUN git clone https://github.com/thu-ml/SageAttention.git /src/SageAttention \
     && /opt/venv/bin/pip wheel \
        --no-build-isolation --no-deps --wheel-dir /wheels /src/SageAttention \
     && /opt/venv/bin/pip install --no-deps /wheels/sageattention-2.2.0-*.whl
+
+RUN git clone https://github.com/Jasonzzt/ComfyUI-CacheDiT.git \
+      /opt/ComfyUI/custom_nodes/ComfyUI-CacheDiT \
+    && git -C /opt/ComfyUI/custom_nodes/ComfyUI-CacheDiT \
+      checkout --detach "${CACHEDIT_COMFY_COMMIT}" \
+    && test "$(git -C /opt/ComfyUI/custom_nodes/ComfyUI-CacheDiT rev-parse HEAD)" \
+      = "${CACHEDIT_COMFY_COMMIT}" \
+    && /opt/venv/bin/pip install "cache-dit==${CACHEDIT_VERSION}"
 
 FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04
 
