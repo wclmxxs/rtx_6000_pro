@@ -23,7 +23,7 @@ router = APIRouter()
 
 
 class MediaURL(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     url: str
 
@@ -36,16 +36,12 @@ class MediaURL(BaseModel):
 
 
 class ContentItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     type: Literal["text", "image_url", "video_url", "audio_url"]
-    role: Literal[
-        "first_frame",
-        "last_frame",
-        "reference_image",
-        "reference_video",
-        "reference_audio",
-    ] | None = None
+    # Text roles such as "user" are accepted for gateway compatibility and
+    # ignored. Media roles remain semantically validated below.
+    role: str | None = None
     text: str | None = None
     image_url: MediaURL | None = None
     video_url: MediaURL | None = None
@@ -65,8 +61,6 @@ class ContentItem(BaseModel):
         if self.type == "text":
             if not self.text or not self.text.strip():
                 raise ValueError("text must be non-empty")
-            if self.role is not None:
-                raise ValueError("role is not allowed for text")
             return self
 
         expected_roles = {
@@ -81,7 +75,9 @@ class ContentItem(BaseModel):
 
 
 class GenerationRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # Gateways may add optional fields (for example aigc_watermark) that this
+    # backend does not implement. Ignore them instead of rejecting the task.
+    model_config = ConfigDict(extra="ignore")
 
     model: str
     content: list[ContentItem] = Field(min_length=1)
@@ -127,7 +123,7 @@ class GenerationRequest(BaseModel):
 
 
 class QueryRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     model: str
     task_id: str

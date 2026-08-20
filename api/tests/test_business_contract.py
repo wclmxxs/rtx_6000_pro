@@ -29,6 +29,46 @@ def test_text_to_video_maps_business_nfe_to_sigma_points():
     assert core.num_inference_steps == 7
 
 
+def test_text_role_and_unknown_gateway_fields_are_ignored():
+    generation = GenerationRequest.model_validate(
+        {
+            "model": "MiniMax-H3",
+            "content": [
+                {
+                    "type": "text",
+                    "role": "user",
+                    "text": "给小猫戴个帽子并跳舞",
+                    "gateway_metadata": {"trace": "ignored"},
+                }
+            ],
+            "resolution": "768P",
+            "duration": 10,
+            "ratio": "16:9",
+            "num_inference_steps": 8,
+            "aigc_watermark": False,
+        }
+    )
+    core = to_core_request(generation)
+    assert core.task == "t2va"
+    assert core.prompt == "给小猫戴个帽子并跳舞"
+    assert core.conditions == []
+    assert "aigc_watermark" not in generation.model_dump()
+
+
+def test_media_role_is_still_validated_after_text_role_is_relaxed():
+    with pytest.raises(ValidationError, match="requires role"):
+        request(
+            content=[
+                text_item(),
+                {
+                    "type": "image_url",
+                    "role": "user",
+                    "image_url": {"url": "https://example.com/first.png"},
+                },
+            ]
+        )
+
+
 def test_text_only_rejects_adaptive_ratio():
     with pytest.raises(ValidationError, match="non-adaptive"):
         request(ratio="adaptive")

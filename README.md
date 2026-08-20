@@ -99,6 +99,8 @@ curl -sS -X POST http://NODE_IP:30010/ic/capcut/edit_gateway/v2/query/video_gene
 
 接口参数：resolution 仅支持 `768P`/`704P`，duration 为 4～15，ratio 支持 `adaptive`、`21:9`、`16:9`、`4:3`、`1:1`、`3:4`、`9:16`。`num_inference_steps` 按真实 NFE 计数；4/6/8 NFE 的 T2V/FL2V 自动使用 Turbo LoRA，其他步数走底模采样器，REF2V 始终不使用该 LoRA。
 
+业务网关透传的未知顶层字段和 `content` 子字段会被忽略，例如 `aigc_watermark`；纯文本项允许携带并忽略 `role: "user"`。媒体项仍必须使用对应的 `first_frame`、`last_frame` 或 `reference_*` role，以避免错误解释输入素材。
+
 ## 运维
 
 ```bash
