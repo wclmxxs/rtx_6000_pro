@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -212,6 +214,12 @@ def test_server_exposes_gateway_routes():
     assert "/ic/capcut/edit_gateway/v2/video_generation" in paths
     assert "/ic/capcut/edit_gateway/v2/query/video_generation" in paths
     assert "/sync_infer" in paths
+
+
+def test_api_image_keeps_gateway_connections_alive():
+    dockerfile = Path(__file__).parents[2] / "docker" / "Dockerfile.api"
+    contents = dockerfile.read_text()
+    assert '"--timeout-keep-alive", "120"' in contents
 
 
 def test_gateway_validation_error_is_explicit_json():
