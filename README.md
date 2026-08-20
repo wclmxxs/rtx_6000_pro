@@ -103,7 +103,7 @@ curl -sS -X POST http://NODE_IP:30010/ic/capcut/edit_gateway/v2/query/video_gene
 
 Cache-DiT 默认对所有 H3 任务开启，参数为 `Fn=1`、`Bn=0`、`warmup=2`、`RDT=0.24`，主要针对 4/6/8 NFE Turbo 路径。它会复用相邻去噪步的中间结果，属于有损加速；大幅运动、复杂镜头需要做画质回归。要立即回退，在 `.env` 写入 `CACHE_DIT_ENABLED=false` 后重建 API 镜像并重建 API 容器，worker 镜像无需回退。
 
-Sol-Attn 默认开启 H3 专用零拷贝稀疏路径：前 20% 采样保持 dense，随后按 cosine 将 `tau` 从 `1.2` 降到 `0.8`；conditioning KV、前 3 个 transformer block 和最后一个 block 保持精确。短于 4096 token 或稀疏内核不适用时自动回退 SageAttention2。worker 运行镜像保留 Triton JIT 所需的 C/C++ 工具链，健康检查同时验证工具链和节点。默认不开 Sol 的额外 INT8 QK/PV 近似。可通过 `.env` 的 `SOL_ATTN_*` 参数调整，或设置 `SOL_ATTN_ENABLED=false` 关闭。
+Sol-Attn 默认开启 H3 专用零拷贝稀疏路径：前 20% 采样保持 dense，随后按 cosine 将 `tau` 从 `1.2` 降到 `0.8`；conditioning KV、前 3 个 transformer block 和最后一个 block 保持精确。短于 4096 token 或稀疏内核不适用时自动回退 SageAttention2。worker 运行镜像保留 Triton JIT 所需的 C/C++ 工具链和 Python 开发头文件；健康检查会实际初始化 Triton CUDA driver，并同时验证 Cache-DiT、Sol-Attn 节点。默认不开 Sol 的额外 INT8 QK/PV 近似。可通过 `.env` 的 `SOL_ATTN_*` 参数调整，或设置 `SOL_ATTN_ENABLED=false` 关闭。
 
 业务网关透传的未知顶层字段和 `content` 子字段会被忽略，例如 `aigc_watermark`；纯文本项允许携带并忽略 `role: "user"`。媒体项仍必须使用对应的 `first_frame`、`last_frame` 或 `reference_*` role，以避免错误解释输入素材。
 

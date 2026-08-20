@@ -96,7 +96,7 @@ def worker_service(gpu: dict[str, object], data_root: str) -> list[str]:
         f"      - {slot}/temp:/temp",
         f"      - {slot}/user:/user",
         "    healthcheck:",
-        "      test: ['CMD-SHELL', 'command -v cc >/dev/null && command -v c++ >/dev/null && curl -fsS http://127.0.0.1:8188/system_stats >/dev/null && curl -fsS http://127.0.0.1:8188/object_info/CacheDiT_MiniMax_H3_Advanced_Optimizer | grep -q CacheDiT_MiniMax_H3_Advanced_Optimizer && curl -fsS http://127.0.0.1:8188/object_info/MiniMaxH3ScheduledSolAttentionPatch | grep -q MiniMaxH3ScheduledSolAttentionPatch']",
+        "      test: ['CMD-SHELL', 'command -v cc >/dev/null && command -v c++ >/dev/null && test -f /usr/include/python3.12/Python.h && /opt/venv/bin/python -c \"from triton.runtime import driver; driver.active.get_current_target()\" >/dev/null && curl -fsS http://127.0.0.1:8188/system_stats >/dev/null && curl -fsS http://127.0.0.1:8188/object_info/CacheDiT_MiniMax_H3_Advanced_Optimizer | grep -q CacheDiT_MiniMax_H3_Advanced_Optimizer && curl -fsS http://127.0.0.1:8188/object_info/MiniMaxH3ScheduledSolAttentionPatch | grep -q MiniMaxH3ScheduledSolAttentionPatch']",
         "      interval: 10s",
         "      timeout: 5s",
         "      retries: 18",

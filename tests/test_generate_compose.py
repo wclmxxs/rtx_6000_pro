@@ -26,6 +26,8 @@ def test_worker_and_api_are_bound_to_requested_gpu():
     assert "minimax-h3-comfy-3" in worker
     assert "command -v cc >/dev/null" in worker
     assert "command -v c++ >/dev/null" in worker
+    assert "/usr/include/python3.12/Python.h" in worker
+    assert "driver.active.get_current_target()" in worker
     assert "CacheDiT_MiniMax_H3_Advanced_Optimizer" in worker
     assert "MiniMaxH3ScheduledSolAttentionPatch" in worker
     assert "0.0.0.0:30013:30010" in api

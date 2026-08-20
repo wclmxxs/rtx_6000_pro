@@ -72,7 +72,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        python3 ffmpeg curl ca-certificates libgl1 libglib2.0-0 libgomp1 \
-       build-essential \
+       python3-dev build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/venv /opt/venv
