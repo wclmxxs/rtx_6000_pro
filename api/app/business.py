@@ -220,10 +220,12 @@ def task_payload(job: dict[str, Any]) -> dict[str, Any]:
         "completed": "succeeded",
         "failed": "failed",
         "deleted": "cancelled",
+        "expired": "expired",
     }.get(str(job.get("status")), "failed")
     created_at = int(job.get("created_at") or time.time())
     updated_at = int(
-        job.get("completed_at")
+        job.get("expired_at")
+        or job.get("completed_at")
         or job.get("_gpu_started_at")
         or job.get("_queued_at")
         or created_at
@@ -328,6 +330,8 @@ async def business_video_content(task_id: str) -> FileResponse:
     if job is None:
         raise HTTPException(status_code=404, detail=f"task {task_id!r} not found")
     if job.get("status") != "completed":
+        if job.get("status") == "expired":
+            raise HTTPException(status_code=410, detail="Video output has expired")
         raise HTTPException(status_code=409, detail=f"task is {job.get('status')}")
     paths = job.get("file_paths") or []
     if not paths or not Path(paths[0]).is_file():

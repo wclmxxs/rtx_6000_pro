@@ -132,6 +132,22 @@ def test_failed_task_returns_explicit_error():
     }
 
 
+def test_expired_task_is_a_terminal_status_without_content():
+    task = task_payload(
+        {
+            "id": "task-id",
+            "status": "expired",
+            "created_at": 100,
+            "completed_at": 120,
+            "expired_at": 200,
+            "_business": {"resolution": "768P", "duration": 5, "ratio": "16:9"},
+        }
+    )
+    assert task["status"] == "expired"
+    assert task["updated_at"] == 200
+    assert "content" not in task
+
+
 def test_server_exposes_gateway_routes():
     from app.business import router
 

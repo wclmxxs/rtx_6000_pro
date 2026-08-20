@@ -85,7 +85,9 @@ curl -sS -X POST http://NODE_IP:30010/ic/capcut/edit_gateway/v2/query/video_gene
   -d '{"model":"MiniMax-H3","task_id":"TASK_ID"}'
 ```
 
-状态为 `queued`、`running`、`succeeded` 或 `failed`。成功时 `task.content.url` 是节点上的 MP4 下载地址；失败和所有业务接口 HTTP 错误都会返回明确的 `error.type`、`error.message` 和 `error.http_code`。
+状态为 `queued`、`running`、`succeeded`、`failed` 或 `expired`。成功时 `task.content.url` 是节点上的 MP4 下载地址；失败和所有业务接口 HTTP 错误都会返回明确的 `error.type`、`error.message` 和 `error.http_code`。
+
+任务完成或失败后，会立即删除该任务下载的输入素材和 ComfyUI 原始产物；对外提供的最终 MP4 默认保留 12 小时。后台每 60 秒清理一次，到期任务变为 `expired`，内容接口返回 HTTP 410。可通过 `.env` 的 `OUTPUT_TTL_SECONDS` 和 `CLEANUP_INTERVAL_SECONDS` 调整。
 
 接口参数：resolution 仅支持 `768P`/`704P`，duration 为 4～15，ratio 支持 `adaptive`、`21:9`、`16:9`、`4:3`、`1:1`、`3:4`、`9:16`。`num_inference_steps` 按真实 NFE 计数；4/6/8 NFE 的 T2V/FL2V 自动使用 Turbo LoRA，其他步数走底模采样器，REF2V 始终不使用该 LoRA。
 

@@ -75,6 +75,9 @@ def test_main_renders_one_service_pair_per_detected_gpu(monkeypatch, tmp_path):
     assert sum(f"\n  h3-api-{index}:\n" in compose for index in range(3)) == 3
     assert len(parsed["services"]) == 7
     assert parsed["services"]["h3-comfy-2"]["deploy"]["resources"]["reservations"]["devices"][0]["device_ids"] == ["2"]
+    api_two = parsed["services"]["h3-api-2"]
+    assert "/srv/minimax-h3/slots/2/output:/comfy-output" in api_two["volumes"]
+    assert api_two["environment"]["OUTPUT_TTL_SECONDS"] == "${OUTPUT_TTL_SECONDS:-43200}"
     assert len(config["instances"]) == 3
     assert config["deployment"]["worker_image"] == "worker:test"
     assert config["deployment"]["api_image"] == "api:test"

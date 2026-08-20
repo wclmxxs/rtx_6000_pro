@@ -54,6 +54,11 @@ MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", "/data/minimax-h3")).resolve()
 DATA_ROOT = Path(os.getenv("DATA_ROOT", "/data")).resolve()
 OUTPUT_ROOT = DATA_ROOT / "outputs"
 JOB_ROOT = DATA_ROOT / "jobs"
+COMFY_OUTPUT_ROOT = Path(os.getenv("COMFY_OUTPUT_ROOT", "/comfy-output")).resolve()
+OUTPUT_TTL_SECONDS = max(60, int(os.getenv("OUTPUT_TTL_SECONDS", "43200")))
+CLEANUP_INTERVAL_SECONDS = max(
+    5, int(os.getenv("CLEANUP_INTERVAL_SECONDS", "60"))
+)
 API_KEY = os.getenv("API_KEY", "")
 ALLOW_REMOTE_MEDIA = os.getenv("ALLOW_REMOTE_MEDIA", "true").lower() in {
     "1",
@@ -800,6 +805,72 @@ def load_job(job_id: str) -> dict[str, Any] | None:
     return json.loads(path.read_text())
 
 
+def valid_job_id(job_id: str) -> bool:
+    try:
+        return str(uuid.UUID(job_id)) == job_id.lower()
+    except (ValueError, AttributeError):
+        return False
+
+
+def cleanup_working_files(job_id: str) -> None:
+    if not valid_job_id(job_id):
+        return
+    for root in (INPUT_ROOT, COMFY_OUTPUT_ROOT):
+        directory = root / "sglang-bridge" / job_id
+        try:
+            directory.resolve().relative_to((root / "sglang-bridge").resolve())
+        except ValueError:
+            continue
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def delete_local_outputs(job: dict[str, Any]) -> None:
+    for raw_path in job.get("file_paths") or []:
+        path = Path(raw_path)
+        try:
+            path.resolve().relative_to(OUTPUT_ROOT.resolve())
+        except ValueError:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def cleanup_expired_outputs_once(now: int | None = None) -> int:
+    current_time = int(time.time()) if now is None else int(now)
+    expired = 0
+    for path in JOB_ROOT.glob("*.json"):
+        try:
+            job = json.loads(path.read_text())
+            if job.get("status") != "completed":
+                continue
+            cleanup_working_files(str(job.get("id") or ""))
+            expires_at = int(
+                job.get("expires_at")
+                or int(job.get("completed_at") or current_time) + OUTPUT_TTL_SECONDS
+            )
+            if job.get("expires_at") != expires_at:
+                job["expires_at"] = expires_at
+                save_job(job)
+            if expires_at > current_time:
+                continue
+            delete_local_outputs(job)
+            job.update(
+                {
+                    "status": "expired",
+                    "expired_at": current_time,
+                    "file_path": None,
+                    "file_paths": None,
+                }
+            )
+            save_job(job)
+            expired += 1
+        except (OSError, ValueError, json.JSONDecodeError, TypeError):
+            continue
+    return expired
+
+
 def public_job(job: dict[str, Any]) -> VideoResponse:
     fields = VideoResponse.model_fields
     return VideoResponse(**{key: value for key, value in job.items() if key in fields})
@@ -868,14 +939,19 @@ async def copy_comfy_output(
         "type": item.get("type", "output"),
     }
     destination.parent.mkdir(parents=True, exist_ok=True)
-    async with httpx.AsyncClient(timeout=None) as client:
-        async with client.stream(
-            "GET", f"{worker.url}/view", params=params
-        ) as response:
-            response.raise_for_status()
-            with destination.open("wb") as output:
-                async for chunk in response.aiter_bytes(1024 * 1024):
-                    output.write(chunk)
+    temporary = destination.with_suffix(destination.suffix + ".part")
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream(
+                "GET", f"{worker.url}/view", params=params
+            ) as response:
+                response.raise_for_status()
+                with temporary.open("wb") as output:
+                    async for chunk in response.aiter_bytes(1024 * 1024):
+                        output.write(chunk)
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 async def update_job(job: dict[str, Any]) -> None:
@@ -928,25 +1004,32 @@ async def update_job(job: dict[str, Any]) -> None:
                 "num_outputs": None,
             }
         )
+        cleanup_working_files(job["id"])
         save_job(job)
         return
 
     if completed == len(prompt_ids):
         paths: list[str] = []
-        for variant, history in enumerate(histories):
-            output_item: dict[str, Any] | None = None
-            for node_output in (history.get("outputs") or {}).values():
-                for item in node_output.get("images") or []:
-                    if str(item.get("filename", "")).lower().endswith(".mp4"):
-                        output_item = item
+        try:
+            for variant, history in enumerate(histories):
+                output_item: dict[str, Any] | None = None
+                for node_output in (history.get("outputs") or {}).values():
+                    for item in node_output.get("images") or []:
+                        if str(item.get("filename", "")).lower().endswith(".mp4"):
+                            output_item = item
+                            break
+                    if output_item:
                         break
-                if output_item:
-                    break
-            if output_item is None:
-                raise RuntimeError(f"ComfyUI prompt {prompt_ids[variant]} has no MP4")
-            destination = OUTPUT_ROOT / f"{job['id']}-{variant}.mp4"
-            await copy_comfy_output(worker, output_item, destination)
-            paths.append(str(destination.resolve()))
+                if output_item is None:
+                    raise RuntimeError(
+                        f"ComfyUI prompt {prompt_ids[variant]} has no MP4"
+                    )
+                destination = OUTPUT_ROOT / f"{job['id']}-{variant}.mp4"
+                await copy_comfy_output(worker, output_item, destination)
+                paths.append(str(destination.resolve()))
+        except Exception:
+            delete_local_outputs({"file_paths": paths})
+            raise
         completed_at = time.time()
         gpu_started_at = job.get("_gpu_started_at") or job.get(
             "_queued_at", job.get("_started_at", completed_at)
@@ -956,12 +1039,14 @@ async def update_job(job: dict[str, Any]) -> None:
                 "status": "completed",
                 "progress": 100,
                 "completed_at": int(completed_at),
+                "expires_at": int(completed_at) + OUTPUT_TTL_SECONDS,
                 "file_path": paths[0],
                 "file_paths": paths,
                 "num_outputs": len(paths),
                 "inference_time_s": round(completed_at - gpu_started_at, 3),
             }
         )
+        cleanup_working_files(job["id"])
     elif running_ids.intersection(prompt_ids):
         if job.get("_gpu_started_at") is None:
             gpu_started_at = time.time()
@@ -998,10 +1083,17 @@ async def monitor_jobs() -> None:
                                 "file_paths": None,
                             }
                         )
+                        cleanup_working_files(str(current_job["id"]))
                         save_job(current_job)
         except Exception:
             pass
         await asyncio.sleep(1)
+
+
+async def cleanup_expired_outputs() -> None:
+    while True:
+        await asyncio.to_thread(cleanup_expired_outputs_once)
+        await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
 
 
 @asynccontextmanager
@@ -1009,14 +1101,17 @@ async def lifespan(_: FastAPI):
     for directory in (INPUT_ROOT, MEDIA_ROOT, OUTPUT_ROOT, JOB_ROOT):
         directory.mkdir(parents=True, exist_ok=True)
     monitor = asyncio.create_task(monitor_jobs())
+    cleanup = asyncio.create_task(cleanup_expired_outputs())
     try:
         yield
     finally:
         monitor.cancel()
-        try:
-            await monitor
-        except asyncio.CancelledError:
-            pass
+        cleanup.cancel()
+        for task in (monitor, cleanup):
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="MiniMax H3 SGLang-compatible NVFP4 bridge", lifespan=lifespan)
@@ -1064,6 +1159,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         400: "invalid_request_error",
         404: "not_found_error",
         409: "conflict_error",
+        410: "expired_error",
         413: "payload_too_large_error",
         429: "rate_limit_error",
         502: "upstream_error",
@@ -1278,8 +1374,10 @@ async def create_video(
                         )
                     prompt_ids.append(payload["prompt_id"])
     except (ValueError, subprocess.CalledProcessError) as exc:
+        cleanup_working_files(job_id)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
+        cleanup_working_files(job_id)
         raise HTTPException(
             status_code=503, detail=f"Selected ComfyUI worker failed: {exc}"
         ) from exc
@@ -1357,11 +1455,8 @@ async def delete_video(
     if not job:
         raise HTTPException(status_code=404, detail="Video not found")
     # SGLang currently marks the stored record deleted; it does not abort work.
-    for file_path in job.get("file_paths") or []:
-        try:
-            Path(file_path).unlink(missing_ok=True)
-        except OSError:
-            pass
+    delete_local_outputs(job)
+    cleanup_working_files(video_id)
     job_file(video_id).unlink(missing_ok=True)
     job["status"] = "deleted"
     return public_job(job)
@@ -1384,7 +1479,9 @@ async def download_video_content(
                 f"{job['url']}"
             ),
         )
-    if job.get("status") not in {"completed", "failed"}:
+    if job.get("status") == "expired":
+        raise HTTPException(status_code=410, detail="Video output has expired")
+    if job.get("status") != "completed":
         raise HTTPException(status_code=404, detail="Generation is still in-progress")
     try:
         variant_index = 0 if variant is None else int(variant)

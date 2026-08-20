@@ -1,10 +1,14 @@
 import pytest
 from pydantic import ValidationError
+import json
+import uuid
 
 from app.main import (
     VideoRequest,
     align_frame_count,
     build_graph,
+    cleanup_expired_outputs_once,
+    cleanup_working_files,
     choose_worker_index,
     resolve_spatial_shape,
     sanitize_upload_name,
@@ -179,3 +183,64 @@ def test_normal_step_count_keeps_base_sampler():
     assert profile.lora_name is None
     assert profile.sampler_name == "res_multistep"
     assert profile.denoiser_evaluations == 29
+
+
+def test_working_file_cleanup_is_scoped_to_one_uuid(monkeypatch, tmp_path):
+    from app import main
+
+    job_id = str(uuid.uuid4())
+    input_root = tmp_path / "input"
+    comfy_output_root = tmp_path / "comfy-output"
+    monkeypatch.setattr(main, "INPUT_ROOT", input_root)
+    monkeypatch.setattr(main, "COMFY_OUTPUT_ROOT", comfy_output_root)
+
+    for root in (input_root, comfy_output_root):
+        task_directory = root / "sglang-bridge" / job_id
+        task_directory.mkdir(parents=True)
+        (task_directory / "artifact.bin").write_bytes(b"task")
+        (root / "keep.bin").write_bytes(b"keep")
+
+    cleanup_working_files(job_id)
+
+    for root in (input_root, comfy_output_root):
+        assert not (root / "sglang-bridge" / job_id).exists()
+        assert (root / "keep.bin").read_bytes() == b"keep"
+
+
+def test_completed_output_expires_and_unrelated_file_is_preserved(
+    monkeypatch, tmp_path
+):
+    from app import main
+
+    job_id = str(uuid.uuid4())
+    output_root = tmp_path / "data" / "outputs"
+    job_root = tmp_path / "data" / "jobs"
+    output_root.mkdir(parents=True)
+    job_root.mkdir(parents=True)
+    result = output_root / f"{job_id}-0.mp4"
+    result.write_bytes(b"video")
+    unrelated = tmp_path / "unrelated.mp4"
+    unrelated.write_bytes(b"keep")
+
+    monkeypatch.setattr(main, "OUTPUT_ROOT", output_root)
+    monkeypatch.setattr(main, "JOB_ROOT", job_root)
+    monkeypatch.setattr(main, "INPUT_ROOT", tmp_path / "input")
+    monkeypatch.setattr(main, "COMFY_OUTPUT_ROOT", tmp_path / "comfy-output")
+    main.save_job(
+        {
+            "id": job_id,
+            "status": "completed",
+            "completed_at": 100,
+            "expires_at": 200,
+            "file_path": str(result),
+            "file_paths": [str(result), str(unrelated)],
+        }
+    )
+
+    assert cleanup_expired_outputs_once(now=201) == 1
+    expired = json.loads((job_root / f"{job_id}.json").read_text())
+    assert expired["status"] == "expired"
+    assert expired["file_path"] is None
+    assert expired["file_paths"] is None
+    assert not result.exists()
+    assert unrelated.read_bytes() == b"keep"
