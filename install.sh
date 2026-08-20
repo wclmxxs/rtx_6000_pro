@@ -11,7 +11,7 @@ case ${1:-} in
   --from-ami) from_ami=true ;;
   -h|--help)
     echo "Usage: $0 [--from-ami]"
-    echo "  --from-ami  Trust baked model sizes and reuse existing Docker images."
+    echo "  --from-ami  Trust baked model sizes and reuse source-matched Docker images."
     exit 0
     ;;
   *)
@@ -172,19 +172,34 @@ HF_TOKEN=${HF_TOKEN:-} .state/model-venv/bin/python scripts/download_models.py \
   "${model_args[@]}"
 
 docker_cmd=(sudo docker)
+image_source_label=com.capcut.minimax_h3.source_digest
 build_image() {
-  local dockerfile=$1 image=$2
-  if [[ ${from_ami} == true ]] \
-    && "${docker_cmd[@]}" image inspect "${image}" >/dev/null 2>&1; then
-    echo "AMI fast path: reusing Docker image ${image}"
+  local dockerfile=$1 image=$2 source_digest existing_digest
+  shift 2
+  source_digest=$(python3 scripts/source_digest.py "${dockerfile}" "$@")
+  existing_digest=$(
+    "${docker_cmd[@]}" image inspect \
+      --format "{{ index .Config.Labels \"${image_source_label}\" }}" \
+      "${image}" 2>/dev/null || true
+  )
+  if [[ ${from_ami} == true && ${existing_digest} == "${source_digest}" ]]; then
+    echo "AMI fast path: reusing source-matched Docker image ${image}"
     return
   fi
+  if [[ ${from_ami} == true ]]; then
+    if [[ -n ${existing_digest} ]]; then
+      echo "AMI fast path: source changed; rebuilding Docker image ${image}"
+    else
+      echo "AMI fast path: image is missing a source digest; rebuilding ${image}"
+    fi
+  fi
   "${docker_cmd[@]}" build --progress=plain \
+    --label "${image_source_label}=${source_digest}" \
     -f "${dockerfile}" -t "${image}" .
 }
 build_image docker/Dockerfile.worker "${WORKER_IMAGE}"
-build_image docker/Dockerfile.api "${API_IMAGE}"
-build_image docker/Dockerfile.reporter "${REPORTER_IMAGE}"
+build_image docker/Dockerfile.api "${API_IMAGE}" api
+build_image docker/Dockerfile.reporter "${REPORTER_IMAGE}" reporter
 
 python3 scripts/generate_compose.py \
   --data-root "${DATA_ROOT}" \

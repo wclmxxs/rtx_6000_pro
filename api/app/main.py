@@ -86,6 +86,25 @@ TURBO_LORA = os.getenv(
     "TURBO_LORA",
     "minimax_h3_turbo_v4_step600_ema.safetensors",
 )
+CACHE_DIT_ENABLED = os.getenv("CACHE_DIT_ENABLED", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+CACHE_DIT_FN_BLOCKS = max(1, int(os.getenv("CACHE_DIT_FN_BLOCKS", "1")))
+CACHE_DIT_BN_BLOCKS = max(0, int(os.getenv("CACHE_DIT_BN_BLOCKS", "0")))
+CACHE_DIT_RESIDUAL_DIFF_THRESHOLD = max(
+    0.001,
+    float(os.getenv("CACHE_DIT_RESIDUAL_DIFF_THRESHOLD", "0.24")),
+)
+CACHE_DIT_WARMUP_STEPS = max(
+    0, int(os.getenv("CACHE_DIT_WARMUP_STEPS", "2"))
+)
+CACHE_DIT_PRINT_SUMMARY = os.getenv("CACHE_DIT_PRINT_SUMMARY", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 ASPECT_RATIOS = {"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}
 CORS_ORIGINS = tuple(
     item.strip()
@@ -647,6 +666,20 @@ def build_graph(
                 "lora_name": profile.lora_name,
                 "strength": profile.lora_strength,
                 "low_vram": False,
+            },
+        )
+    if CACHE_DIT_ENABLED:
+        sampling_model = new_node(
+            graph,
+            "CacheDiT_MiniMax_H3_Advanced_Optimizer",
+            {
+                "model": [sampling_model, 0],
+                "enable": True,
+                "fn_blocks": CACHE_DIT_FN_BLOCKS,
+                "bn_blocks": CACHE_DIT_BN_BLOCKS,
+                "residual_diff_threshold": CACHE_DIT_RESIDUAL_DIFF_THRESHOLD,
+                "warmup_steps": CACHE_DIT_WARMUP_STEPS,
+                "print_summary": CACHE_DIT_PRINT_SUMMARY,
             },
         )
     shifted_model = new_node(
@@ -1239,6 +1272,13 @@ async def healthz(_: None = Depends(require_api_key)) -> dict[str, Any]:
             "checkpoint": "NVFP4",
             "attention": "SageAttention2",
             "turbo_lora": TURBO_LORA if TURBO_ENABLED else None,
+            "cache_dit": {
+                "enabled": CACHE_DIT_ENABLED,
+                "fn_blocks": CACHE_DIT_FN_BLOCKS,
+                "bn_blocks": CACHE_DIT_BN_BLOCKS,
+                "residual_diff_threshold": CACHE_DIT_RESIDUAL_DIFF_THRESHOLD,
+                "warmup_steps": CACHE_DIT_WARMUP_STEPS,
+            },
         },
     }
 

@@ -106,6 +106,16 @@ def graph_nodes(graph, class_type):
     return [node for node in graph.values() if node["class_type"] == class_type]
 
 
+def graph_entry(graph, class_type):
+    matches = [
+        (node_id, node)
+        for node_id, node in graph.items()
+        if node["class_type"] == class_type
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
 def test_larry_6nfe_turbo_profile_and_graph():
     data = payload(short_edge=768)
     data["num_inference_steps"] = 7
@@ -127,9 +137,39 @@ def test_larry_6nfe_turbo_profile_and_graph():
         "strength": 1.0,
         "low_vram": False,
     }
+    lora_id, _ = graph_entry(graph, "MiniMaxH3TurboLoRA")
+    cache_id, cache = graph_entry(
+        graph, "CacheDiT_MiniMax_H3_Advanced_Optimizer"
+    )
+    assert cache["inputs"] == {
+        "model": [lora_id, 0],
+        "enable": True,
+        "fn_blocks": 1,
+        "bn_blocks": 0,
+        "residual_diff_threshold": 0.24,
+        "warmup_steps": 2,
+        "print_summary": True,
+    }
+    _, sigma_shift = graph_entry(graph, "MiniMaxH3SigmaShift")
+    assert sigma_shift["inputs"]["model"] == [cache_id, 0]
     assert len(graph_nodes(graph, "MiniMaxH3TurboSampler")) == 1
     assert not graph_nodes(graph, "KSamplerSelect")
     assert graph_nodes(graph, "BasicScheduler")[0]["inputs"]["steps"] == 6
+
+
+def test_cache_dit_can_be_disabled_without_removing_turbo(monkeypatch):
+    from app import main
+
+    data = payload(short_edge=768)
+    data["num_inference_steps"] = 7
+    request = VideoRequest.model_validate(data)
+    monkeypatch.setattr(main, "CACHE_DIT_ENABLED", False)
+
+    graph = build_graph(request, [], 1344, 768, 124, 1101, "job", 0)
+    assert not graph_nodes(graph, "CacheDiT_MiniMax_H3_Advanced_Optimizer")
+    lora_id, _ = graph_entry(graph, "MiniMaxH3TurboLoRA")
+    _, sigma_shift = graph_entry(graph, "MiniMaxH3SigmaShift")
+    assert sigma_shift["inputs"]["model"] == [lora_id, 0]
 
 
 def test_larry_turbo_supports_480_and_4_or_8_nfe():

@@ -5,6 +5,8 @@ FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu24.04 AS builder
 ARG COMFYUI_COMMIT=c2bcbecd82ec5ae66594340b395c24ef0217b238
 ARG TURBO_NODE_COMMIT=4274783a23afcfdbea3b4876cb79effd6c510785
 ARG SAGEATTENTION_COMMIT=eb615cf6cf4d221338033340ee2de1c37fbdba4a
+ARG CACHEDIT_COMFY_COMMIT=1d92bbd86ec59aa6223fe2368849b7413a1acb93
+ARG CACHEDIT_VERSION=1.2.0
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -33,6 +35,14 @@ RUN git clone https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo.git \
       /opt/ComfyUI/custom_nodes/ComfyUI-MiniMax-H3-Turbo \
     && git -C /opt/ComfyUI/custom_nodes/ComfyUI-MiniMax-H3-Turbo \
       checkout --detach "${TURBO_NODE_COMMIT}"
+
+RUN git clone https://github.com/Jasonzzt/ComfyUI-CacheDiT.git \
+      /opt/ComfyUI/custom_nodes/ComfyUI-CacheDiT \
+    && git -C /opt/ComfyUI/custom_nodes/ComfyUI-CacheDiT \
+      checkout --detach "${CACHEDIT_COMFY_COMMIT}" \
+    && test "$(git -C /opt/ComfyUI/custom_nodes/ComfyUI-CacheDiT rev-parse HEAD)" \
+      = "${CACHEDIT_COMFY_COMMIT}" \
+    && /opt/venv/bin/pip install "cache-dit==${CACHEDIT_VERSION}"
 
 RUN git clone https://github.com/thu-ml/SageAttention.git /src/SageAttention \
     && git -C /src/SageAttention checkout --detach "${SAGEATTENTION_COMMIT}" \

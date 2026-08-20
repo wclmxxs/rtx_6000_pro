@@ -24,8 +24,12 @@ def test_worker_and_api_are_bound_to_requested_gpu():
     api = "\n".join(MODULE.api_service(gpu, "/srv/minimax-h3", "10.0.0.4", 30010))
     assert "device_ids: [\"3\"]" in worker
     assert "minimax-h3-comfy-3" in worker
+    assert "CacheDiT_MiniMax_H3_Advanced_Optimizer" in worker
     assert "0.0.0.0:30013:30010" in api
     assert "http://10.0.0.4:30013" in api
+    assert "CACHE_DIT_ENABLED: ${CACHE_DIT_ENABLED:-true}" in api
+    assert "CACHE_DIT_FN_BLOCKS: ${CACHE_DIT_FN_BLOCKS:-1}" in api
+    assert "CACHE_DIT_RESIDUAL_DIFF_THRESHOLD: ${CACHE_DIT_RESIDUAL_DIFF_THRESHOLD:-0.24}" in api
 
 
 def test_gpu_count_is_discovered_from_nvidia_smi(monkeypatch):
@@ -78,6 +82,8 @@ def test_main_renders_one_service_pair_per_detected_gpu(monkeypatch, tmp_path):
     api_two = parsed["services"]["h3-api-2"]
     assert "/srv/minimax-h3/slots/2/output:/comfy-output" in api_two["volumes"]
     assert api_two["environment"]["OUTPUT_TTL_SECONDS"] == "${OUTPUT_TTL_SECONDS:-43200}"
+    assert api_two["environment"]["CACHE_DIT_ENABLED"] == "${CACHE_DIT_ENABLED:-true}"
+    assert api_two["environment"]["CACHE_DIT_WARMUP_STEPS"] == "${CACHE_DIT_WARMUP_STEPS:-2}"
     assert len(config["instances"]) == 3
     assert config["deployment"]["worker_image"] == "worker:test"
     assert config["deployment"]["api_image"] == "api:test"

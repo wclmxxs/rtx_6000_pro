@@ -1,6 +1,6 @@
 # MiniMax-H3 RTX PRO 6000 部署
 
-每张 GPU 启动一套独立的 `ComfyUI + API`，运行 NVFP4 底模、SageAttention2 和 Larry Turbo LoRA。GPU 数量由 `nvidia-smi` 自动识别；8 卡机器会注册 8 个可独立调度的实例，端口默认是 `30010`～`30017`。
+每张 GPU 启动一套独立的 `ComfyUI + API`，运行 NVFP4 底模、SageAttention2、Larry Turbo LoRA 和 Cache-DiT。GPU 数量由 `nvidia-smi` 自动识别；8 卡机器会注册 8 个可独立调度的实例，端口默认是 `30010`～`30017`。
 
 默认注册信息：
 
@@ -24,10 +24,12 @@ cd rtx_6000_pro
 从已经完整部署并验证过的 EC2 AMI 创建新实例时，使用快速启动模式：
 
 ```bash
+git pull
 ./install.sh --from-ami
+./smoke_test.sh
 ```
 
-该模式仍会从 IMDS 刷新公网 IP 和 instance-id、重新生成 Compose、启动并逐卡强制预热、最后重新注册；已有模型只检查锁定文件大小，不计算 SHA256，但会顺序读取一次以初始化 snapshot-backed EBS blocks，避免多个 GPU 首次加载时同时触发 EBS lazy loading。已有 Docker 镜像会直接复用；模型或镜像缺失时仍会自动下载或构建。普通 `./install.sh` 保持完整哈希校验和构建流程，适合全新机器及发布验证。
+该模式仍会从 IMDS 刷新公网 IP 和 instance-id、重新生成 Compose、启动并逐卡强制预热、最后重新注册；已有模型只检查锁定文件大小，不计算 SHA256，但会顺序读取一次以初始化 snapshot-backed EBS blocks，避免多个 GPU 首次加载时同时触发 EBS lazy loading。Docker 镜像带有源码摘要：代码未变化时直接复用，`git pull` 改变了对应镜像源码时自动重建；旧版无摘要镜像也会自动重建一次。模型缺失时仍会自动下载。普通 `./install.sh` 保持完整哈希校验和构建流程，适合全新机器及发布验证。
 
 如需覆盖默认值，首次运行前执行：
 
@@ -98,6 +100,8 @@ curl -sS -X POST http://NODE_IP:30010/ic/capcut/edit_gateway/v2/query/video_gene
 任务完成或失败后，会立即删除该任务下载的输入素材和 ComfyUI 原始产物；对外提供的最终 MP4 默认保留 12 小时。后台每 60 秒清理一次，到期任务变为 `expired`，内容接口返回 HTTP 410。可通过 `.env` 的 `OUTPUT_TTL_SECONDS` 和 `CLEANUP_INTERVAL_SECONDS` 调整。
 
 接口参数：resolution 仅支持 `768P`/`704P`，duration 为 4～15，ratio 支持 `adaptive`、`21:9`、`16:9`、`4:3`、`1:1`、`3:4`、`9:16`。`num_inference_steps` 按真实 NFE 计数；4/6/8 NFE 的 T2V/FL2V 自动使用 Turbo LoRA，其他步数走底模采样器，REF2V 始终不使用该 LoRA。
+
+Cache-DiT 默认对所有 H3 任务开启，参数为 `Fn=1`、`Bn=0`、`warmup=2`、`RDT=0.24`，主要针对 4/6/8 NFE Turbo 路径。它会复用相邻去噪步的中间结果，属于有损加速；大幅运动、复杂镜头需要做画质回归。要立即回退，在 `.env` 写入 `CACHE_DIT_ENABLED=false` 后重建 API 镜像并重建 API 容器，worker 镜像无需回退。
 
 业务网关透传的未知顶层字段和 `content` 子字段会被忽略，例如 `aigc_watermark`；纯文本项允许携带并忽略 `role: "user"`。媒体项仍必须使用对应的 `first_frame`、`last_frame` 或 `reference_*` role，以避免错误解释输入素材。
 
