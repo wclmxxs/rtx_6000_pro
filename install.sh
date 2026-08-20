@@ -201,7 +201,14 @@ for ((index=0; index<gpu_count; index++)); do
   services+=("h3-comfy-${index}" "h3-api-${index}")
 done
 "${compose[@]}" stop h3-reporter >/dev/null 2>&1 || true
-"${compose[@]}" up -d --remove-orphans "${services[@]}"
+compose_up_args=(-d --remove-orphans)
+if [[ ${from_ami} == true ]]; then
+  # EC2 AMIs preserve Docker container metadata, including stale health state
+  # and device bindings from the source machine. Recreate containers while
+  # retaining all bind-mounted models and data directories.
+  compose_up_args+=(--force-recreate)
+fi
+"${compose[@]}" up "${compose_up_args[@]}" "${services[@]}"
 
 deadline=$((SECONDS + 900))
 while (( SECONDS < deadline )); do
