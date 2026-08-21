@@ -33,7 +33,9 @@ def test_worker_and_api_are_bound_to_requested_gpu():
     assert "CacheDiT_MiniMax_H3_Advanced_Optimizer" in worker
     assert "MiniMaxH3ScheduledSolAttentionPatch" in worker
     assert "PYTORCH_CUDA_ALLOC_CONF: ${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}" in worker
-    assert "0.0.0.0:30013:30010" in api
+    assert "'0.0.0.0:30013:30010'" in api
+    assert "'[::]:30013:30010'" in api
+    assert "http://[::1]:30010/healthz" in api
     assert "http://10.0.0.4:30013" in api
     assert "CACHE_DIT_ENABLED: ${CACHE_DIT_ENABLED:-true}" in api
     assert "CACHE_DIT_FN_BLOCKS: ${CACHE_DIT_FN_BLOCKS:-1}" in api
@@ -95,6 +97,10 @@ def test_main_renders_one_service_pair_per_detected_gpu(monkeypatch, tmp_path):
     assert len(parsed["services"]) == 8
     assert parsed["services"]["h3-comfy-2"]["deploy"]["resources"]["reservations"]["devices"][0]["device_ids"] == ["2"]
     api_two = parsed["services"]["h3-api-2"]
+    assert api_two["ports"] == [
+        "0.0.0.0:30012:30010",
+        "[::]:30012:30010",
+    ]
     assert "/srv/minimax-h3/slots/2/output:/comfy-output" in api_two["volumes"]
     assert api_two["environment"]["OUTPUT_TTL_SECONDS"] == "${OUTPUT_TTL_SECONDS:-43200}"
     assert api_two["environment"]["CACHE_DIT_ENABLED"] == "${CACHE_DIT_ENABLED:-true}"

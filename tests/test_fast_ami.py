@@ -123,5 +123,6 @@ def test_install_migrates_only_the_previous_sparse_defaults():
     assert "migrate_env_default CACHE_DIT_WARMUP_STEPS 2 1" in script
     assert "migrate_env_default CACHE_DIT_RESIDUAL_DIFF_THRESHOLD 0.35 0.24" in script
     assert "h3-rtx6000pro-20260820-v4 h3-rtx6000pro-20260821-v5" in script
+    assert "h3-rtx6000pro-20260821-v5 h3-rtx6000pro-20260821-v6" in script
     assert 'build_image docker/Dockerfile.watchdog "${WATCHDOG_IMAGE}" watchdog' in script
     assert '"${compose[@]}" up -d h3-watchdog' in script
