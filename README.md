@@ -97,7 +97,7 @@ curl -sS -X POST http://NODE_IP:30010/ic/capcut/edit_gateway/v2/query/video_gene
   -d '{"model":"MiniMax-H3","task_id":"TASK_ID"}'
 ```
 
-状态为 `queued`、`running`、`succeeded`、`failed` 或 `expired`。成功时 `task.content.url` 是节点上的 MP4 下载地址；失败和所有业务接口 HTTP 错误都会返回明确的 `error.type`、`error.message` 和 `error.http_code`。
+状态为 `queued`、`running`、`succeeded`、`failed` 或 `expired`。查询响应中的 `task.inference_time_s` 在任务结束前为 `null`，完成或失败后返回服务端记录的推理耗时（秒）。成功时 `task.content.url` 是节点上的 MP4 下载地址；失败和所有业务接口 HTTP 错误都会返回明确的 `error.type`、`error.message` 和 `error.http_code`。
 
 任务完成或失败后，会立即删除该任务下载的输入素材和 ComfyUI 原始产物；对外提供的最终 MP4 默认保留 12 小时。后台每 60 秒清理一次，到期任务变为 `expired`，内容接口返回 HTTP 410。可通过 `.env` 的 `OUTPUT_TTL_SECONDS` 和 `CLEANUP_INTERVAL_SECONDS` 调整。
 

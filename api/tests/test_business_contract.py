@@ -189,6 +189,22 @@ def test_failed_task_returns_explicit_error():
         "message": "CUDA out of memory",
         "http_code": 500,
     }
+    assert task["inference_time_s"] is None
+
+
+def test_query_task_returns_inference_time():
+    task = task_payload(
+        {
+            "id": "task-id",
+            "status": "completed",
+            "created_at": 100,
+            "completed_at": 154,
+            "inference_time_s": 53.388,
+            "_business": {"resolution": "768P", "duration": 5, "ratio": "16:9"},
+        }
+    )
+    assert task["status"] == "succeeded"
+    assert task["inference_time_s"] == 53.388
 
 
 def test_expired_task_is_a_terminal_status_without_content():

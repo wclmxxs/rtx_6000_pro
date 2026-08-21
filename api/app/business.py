@@ -236,6 +236,7 @@ def task_payload(job: dict[str, Any]) -> dict[str, Any]:
         "ratio": business.get("ratio", "16:9"),
         "task_type": "generation",
         "modality": "video",
+        "inference_time_s": job.get("inference_time_s"),
     }
     if status == "succeeded":
         task["content"] = {
