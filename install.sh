@@ -156,6 +156,8 @@ migrate_env_default RELEASE_ID \
   h3-rtx6000pro-20260820-v3 h3-rtx6000pro-20260820-v4
 migrate_env_default RELEASE_ID \
   h3-rtx6000pro-20260820-v4 h3-rtx6000pro-20260821-v5
+migrate_env_default RELEASE_ID \
+  h3-rtx6000pro-20260821-v5 h3-rtx6000pro-20260821-v6
 migrate_env_default CACHE_DIT_WARMUP_STEPS 2 1
 migrate_env_default CACHE_DIT_RESIDUAL_DIFF_THRESHOLD 0.35 0.24
 migrate_env_default SOL_ATTN_TAU_START 1.2 1.5

@@ -11,6 +11,7 @@ WORKDIR /app
 COPY api/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY api/app ./app
+COPY api/run_dual_stack.py ./run_dual_stack.py
 
 EXPOSE 30010
-CMD ["uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "30010", "--workers", "1", "--timeout-keep-alive", "120"]
+CMD ["python", "/app/run_dual_stack.py"]

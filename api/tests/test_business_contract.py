@@ -219,7 +219,16 @@ def test_server_exposes_gateway_routes():
 def test_api_image_keeps_gateway_connections_alive():
     dockerfile = Path(__file__).parents[2] / "docker" / "Dockerfile.api"
     contents = dockerfile.read_text()
-    assert '"--timeout-keep-alive", "120"' in contents
+    assert 'CMD ["python", "/app/run_dual_stack.py"]' in contents
+
+
+def test_api_dual_stack_runner_binds_separate_ipv4_and_ipv6_sockets():
+    runner = Path(__file__).parents[1] / "run_dual_stack.py"
+    contents = runner.read_text()
+    assert 'socket.socket(socket.AF_INET, socket.SOCK_STREAM)' in contents
+    assert 'socket.socket(socket.AF_INET6, socket.SOCK_STREAM)' in contents
+    assert 'socket.IPV6_V6ONLY, 1' in contents
+    assert "timeout_keep_alive=120" in contents
 
 
 def test_gateway_validation_error_is_explicit_json():

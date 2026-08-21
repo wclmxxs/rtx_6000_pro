@@ -41,6 +41,8 @@ vim .env
 
 每次运行 `install.sh` 都会优先从 AWS IMDS 重新读取公网 IPv4 和 instance-id，并覆盖 `.env` 中可能由源 AMI 遗留的 `ADVERTISE_HOST` 和 `INSTANCE_ID`；刷新前会先停止旧 Reporter，避免新实例以源实例身份继续注册。因此由已部署机器制作的 AMI 启动后，可以直接重新执行 `./install.sh`。IMDS 不可用时才使用 `.env` 中的手工配置；公网地址也不可用时安装会直接失败，不会退回私网 IP。模型文件默认放在 `/srv/minimax-h3/models`。`.env` 中的 `API_KEY` 会自动生成，仅用于节点内部健康检查和兼容的 `/v1` API。
 
+API 端口默认同时发布到宿主机 IPv4 `0.0.0.0` 和 IPv6 `[::]`；容器内同一个 Uvicorn 进程显式持有独立的 IPv4、IPv6 socket，不依赖 `bindv6only` 的系统默认值。健康检查会同时验证 IPv4 loopback 和 IPv6 loopback。ReportCatalog 的 `host` 仍使用 AWS IMDS 返回的公网 IPv4，保持现有调度协议不变；通过 IPv6 直连或前置双栈负载均衡时，AWS 实例、子网/路由表、网络 ACL 和安全组还必须配置对应 IPv6 地址与入站规则。
+
 远程素材默认允许公网地址和 `.byted.org` 内网域名；其他内网素材域名要加入 `.env` 的 `REMOTE_MEDIA_HOST_ALLOWLIST`，用逗号分隔。
 
 ## 运行接口
